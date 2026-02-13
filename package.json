@@ -1,0 +1,27 @@
+{
+  "name": "sub-job-scraper",
+  "version": "1.0.0",
+  "description": "Automated Frontline Education substitute teaching job scraper with Telegram notifications",
+  "type": "module",
+  "main": "scraper.mjs",
+  "scripts": {
+    "test-notify": "node test-notify.mjs",
+    "scrape": "node run-once.mjs",
+    "setup": "pnpm install && npx playwright install chromium",
+    "schedule": "bash install-schedule.sh",
+    "unschedule": "bash uninstall-schedule.sh"
+  },
+  "keywords": [
+    "scraper",
+    "playwright",
+    "telegram",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.58.2",
+    "dotenv": "^17.3.0",
+    "node-telegram-bot-api": "^0.67.0"
+  }
+}

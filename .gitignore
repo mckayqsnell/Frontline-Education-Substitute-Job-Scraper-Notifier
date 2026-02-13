@@ -1,0 +1,31 @@
+# Environment variables
+.env
+
+# Dependencies
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Data files
+data/
+
+# Debug screenshots
+debug/
+
+# Log files
+logs/
+
+# Playwright
+playwright-report/
+test-results/
+.playwright/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
