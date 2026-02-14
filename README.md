@@ -6,9 +6,10 @@ Automated web scraper that monitors Frontline Education (formerly AESOP) for sub
 
 - ✅ **Automated scraping** every 10 minutes via macOS launchd
 - 🎯 **Smart filtering** by school level, subject, duration, and blacklisted schools
-- 📱 **Telegram notifications** for new matching jobs
+- 📱 **Telegram notifications** with clickable links for instant booking
 - 🚫 **Duplicate prevention** - tracks notified jobs to avoid repeat notifications
 - 🤖 **Human-like behavior** - random delays to avoid bot detection
+- 💻 **Lid-closed operation** - works with MacBook lid closed when on AC power
 - 📸 **Debug capture** - screenshots and DOM logs for troubleshooting
 - 🔮 **Future-ready** - prepared for automated job booking with Telegram bot confirmation
 
@@ -112,7 +113,7 @@ This will:
 
 If jobs aren't being scraped correctly:
 
-1. Open `debug/02-available-jobs-[timestamp].png`
+1. Open the most recent `debug/02-available-jobs-{N}jobs-[timestamp].png`
 2. Compare with `selectors.mjs`
 3. Update selectors if Frontline's UI has changed
 4. Re-run `pnpm run scrape` to test
@@ -167,6 +168,43 @@ pnpm run scrape
 
 This runs once immediately, ignoring operating hours.
 
+### Visual vs Headless Browser Mode
+
+The project supports both visible and headless browser operation:
+
+**Scheduled runs** (automatic):
+- Uses headless mode (no visible browser)
+- Runs silently in background
+- Optimized for automation
+
+**Manual testing** (`pnpm run scrape`):
+- Shows visible browser window
+- Watch the automation in real-time
+- Useful for debugging and verification
+
+This allows you to test visually anytime without affecting automated scheduled runs.
+
+### Run with MacBook Lid Closed
+
+The scraper works with the MacBook lid closed if:
+- ✅ Connected to AC power
+- ✅ Connected to WiFi
+- ✅ Mac configured to not sleep on AC power
+
+**Verify your power settings:**
+```bash
+pmset -g custom
+```
+
+Look for `AC Power: sleep 0` - this means your Mac won't sleep when plugged in.
+
+**If needed, disable sleep on AC power:**
+```bash
+sudo pmset -c sleep 0
+```
+
+This allows the scraper to run every 10 minutes even with the lid closed.
+
 ## Filtering Criteria
 
 ### Accepted School Levels
@@ -201,6 +239,21 @@ This runs once immediately, ignoring operating hours.
 ### Duration Requirement
 - **Only "Full Day" jobs** are accepted
 - Half Day (AM/PM) jobs are automatically rejected
+
+## Telegram Notifications
+
+When a matching job is found, you'll receive a Telegram notification with:
+
+- 📅 **Date**: When the job is scheduled
+- 🏫 **School**: School name
+- 📚 **Subject**: Position/subject area
+- 👤 **Teacher**: Teacher's name
+- ⏰ **Time**: Start and end times
+- ⏱️ **Duration**: Full Day (or duration type)
+- 🔢 **Job #**: Confirmation number
+- 🔗 **Clickable link**: Direct link to Frontline login page
+
+**Click the link in the notification to instantly open Frontline and book the job!** The link takes you directly to the login page, so you can quickly log in and claim the position before other substitutes.
 
 ## Modifying Filters
 
@@ -237,6 +290,32 @@ export function isOperatingHours() {
 }
 ```
 
+**Change debug file retention:**
+
+Debug screenshots are automatically cleaned up to prevent disk space issues. By default, files older than 3 days are deleted at the end of each scraper run.
+
+To change the retention period, edit the `DEBUG_FILE_RETENTION_DAYS` constant in both `scraper.mjs` and `run-once.mjs`:
+
+```javascript
+// Keep debug screenshots for 3 days (108 runs/day = ~324 screenshots/day)
+const DEBUG_FILE_RETENTION_DAYS = 3; // Change to desired number of days
+```
+
+With default settings (3 days), you'll have approximately 650-700 screenshots in the `debug/` folder at any given time.
+
+## Debug Screenshots
+
+Screenshots are automatically captured during each run and include helpful information in the filename:
+
+- **`01-after-login-{timestamp}.png`** - Login page state (for debugging authentication)
+- **`02-available-jobs-{N}jobs-{timestamp}.png`** - Available jobs page where `{N}` is the number of jobs found
+  - Example: `02-available-jobs-5jobs-1234567890.png` means 5 jobs were present
+  - Example: `02-available-jobs-0jobs-1234567890.png` means no jobs found
+- **`job-card-{index}-{date}-{timestamp}.png`** - Individual matching job cards (for future auto-booking)
+- **`error-{timestamp}.png`** - Error state screenshots (when something goes wrong)
+
+This makes it easy to identify at a glance which screenshots contain actual job listings vs. empty results.
+
 ## File Structure
 
 ```
@@ -263,10 +342,11 @@ sub_teacher_scaper/
 │   └── notified-jobs.json         # Tracks notified jobs
 │
 ├── debug/
-│   ├── 01-after-login-*.png       # Login screenshots
-│   ├── 02-available-jobs-*.png    # Available jobs page screenshots
-│   ├── job-card-*.png             # Individual job card screenshots
-│   └── error-*.png                # Error screenshots
+│   ├── 01-after-login-*.png              # Login screenshots
+│   ├── 02-available-jobs-{N}jobs-*.png   # Available jobs page (N = job count, e.g., 5jobs or 0jobs)
+│   ├── job-card-*.png                    # Individual job card screenshots (matching jobs only)
+│   └── error-*.png                       # Error screenshots
+│   # Note: Files older than 3 days are automatically cleaned up
 │
 └── logs/
     ├── scraper.log                # Main activity log
@@ -286,10 +366,13 @@ sub_teacher_scaper/
 
 ### Jobs not being scraped
 
-1. Check screenshots: `open debug/02-available-jobs-*.png`
-2. Verify selectors match current Frontline UI structure
-3. Update `selectors.mjs` if needed
-4. Re-test with `pnpm run scrape`
+1. Check screenshots: `ls -lt debug/02-available-jobs-*.png | head -5` (look for ones with job count > 0)
+2. Open recent screenshot with jobs: `open debug/02-available-jobs-*jobs-*.png`
+3. Verify selectors match current Frontline UI structure
+4. Update `selectors.mjs` if needed
+5. Re-test with `pnpm run scrape`
+
+**Tip:** Screenshot filenames include job count (e.g., `5jobs` or `0jobs`), making it easy to find examples with actual jobs.
 
 ### Login failing
 

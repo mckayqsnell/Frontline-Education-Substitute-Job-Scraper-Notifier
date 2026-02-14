@@ -84,3 +84,36 @@ export async function ensureDirectories() {
     }
   }
 }
+
+/**
+ * Clean up old debug files (screenshots and HTML dumps)
+ * Keeps files from the last N days, deletes older ones
+ */
+export async function cleanupOldDebugFiles(maxAgeDays = 3) {
+  const debugDir = join(__dirname, 'debug');
+  const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+
+  try {
+    const files = await fs.readdir(debugDir);
+    let deletedCount = 0;
+
+    for (const file of files) {
+      // Only clean up screenshot and HTML files, skip .gitkeep
+      if ((file.endsWith('.png') || file.endsWith('.html')) && file !== '.gitkeep') {
+        const filePath = join(debugDir, file);
+        const stats = await fs.stat(filePath);
+
+        if (stats.mtimeMs < cutoffTime) {
+          await fs.unlink(filePath);
+          deletedCount++;
+        }
+      }
+    }
+
+    if (deletedCount > 0) {
+      await logToFile(`🗑️  Cleaned up ${deletedCount} old debug files (older than ${maxAgeDays} days)`);
+    }
+  } catch (error) {
+    await logToFile(`Failed to cleanup old debug files: ${error.message}`);
+  }
+}

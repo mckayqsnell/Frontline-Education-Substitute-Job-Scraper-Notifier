@@ -7,10 +7,10 @@
 
 export const SELECTORS = {
   login: {
-    // Login page fields
-    usernameField: 'input[placeholder="ID or Username"], input[name="username"]',
-    passwordField: 'input[placeholder="PIN or Password"], input[type="password"]',
-    submitButton: 'button:has-text("Sign In")',
+    // Login page fields - Updated based on actual HTML
+    usernameField: '#Username, input[name="Username"]',
+    passwordField: '#Password, input[name="Password"]',
+    submitButton: '#qa-button-login, button[type="submit"]:has-text("Sign In")',
   },
 
   popup: {

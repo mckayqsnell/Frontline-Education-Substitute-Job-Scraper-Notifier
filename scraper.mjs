@@ -35,6 +35,7 @@ import {
   isOperatingHours,
   createJobHash,
   ensureDirectories,
+  cleanupOldDebugFiles,
 } from './utils.mjs';
 
 dotenv.config();
@@ -47,6 +48,7 @@ const NOTIFIED_JOBS_FILE = path.join(__dirname, 'data', 'notified-jobs.json');
 const JOB_CARD_DOM_LOG = path.join(__dirname, 'logs', 'job-card-dom-examples.html');
 const GLOBAL_TIMEOUT = 120000; // 2 minutes - kill process if it takes too long
 const MAX_JOB_AGE_DAYS = 7; // Clean up notified jobs older than 7 days
+const DEBUG_FILE_RETENTION_DAYS = 3; // Keep debug screenshots for 3 days (108 runs/day = ~324 screenshots/day)
 
 // Global timeout to prevent hanging
 const globalTimeout = setTimeout(() => {
@@ -181,7 +183,7 @@ async function captureJobCardScreenshot(jobBody, job, index) {
 async function login(page) {
   logToFile('Navigating to login page...');
   await page.goto(process.env.FRONTLINE_LOGIN_URL);
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle' to 'domcontentloaded'
   await humanDelay(1000, 3000);
 
   // Type username with human-like delays
@@ -212,7 +214,7 @@ async function login(page) {
   logToFile('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle'
   await humanDelay(1000, 3000);
 
   // Handle "Important Notifications" popup if it appears
@@ -256,10 +258,7 @@ async function navigateToAvailableJobs(page) {
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 10000 });
   await humanDelay(1000, 2000);
 
-  // Take screenshot for debugging
-  const timestamp = Date.now();
-  await page.screenshot({ path: path.join(__dirname, 'debug', `02-available-jobs-${timestamp}.png`) });
-  logToFile('Available Jobs tab loaded - screenshot saved');
+  logToFile('Available Jobs tab loaded');
 }
 
 /**
@@ -459,6 +458,14 @@ async function main() {
     // 7. Scrape all jobs (returns array with job data AND locators)
     const jobsData = await scrapeJobs(page);
 
+    // 7a. Take screenshot of available jobs page with job count in filename
+    const timestamp = Date.now();
+    const jobCount = jobsData.length;
+    await page.screenshot({
+      path: path.join(__dirname, 'debug', `02-available-jobs-${jobCount}jobs-${timestamp}.png`)
+    });
+    logToFile(`Available Jobs screenshot saved: ${jobCount} jobs found`);
+
     // 8. Filter jobs and capture DOM/screenshots for matching ones
     const matchedJobs = [];
     for (const { job, jobBody, index } of jobsData) {
@@ -532,6 +539,9 @@ async function main() {
     // 11. Clean up old entries and save
     notifiedJobs = cleanOldNotifications(notifiedJobs);
     await saveNotifiedJobs(notifiedJobs);
+
+    // 11a. Clean up old debug files (screenshots and HTML)
+    await cleanupOldDebugFiles(DEBUG_FILE_RETENTION_DAYS);
 
     // 12. Log summary
     logToFile(`=== Scraper run complete ===`);

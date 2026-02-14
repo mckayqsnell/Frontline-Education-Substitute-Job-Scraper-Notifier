@@ -25,6 +25,7 @@ import {
   humanDelay,
   createJobHash,
   ensureDirectories,
+  cleanupOldDebugFiles,
 } from './utils.mjs';
 
 dotenv.config();
@@ -36,6 +37,7 @@ const __dirname = dirname(__filename);
 const NOTIFIED_JOBS_FILE = path.join(__dirname, 'data', 'notified-jobs.json');
 const JOB_CARD_DOM_LOG = path.join(__dirname, 'logs', 'job-card-dom-examples.html');
 const GLOBAL_TIMEOUT = 120000; // 2 minutes
+const DEBUG_FILE_RETENTION_DAYS = 3; // Keep debug screenshots for 3 days
 
 // Global timeout to prevent hanging
 const globalTimeout = setTimeout(() => {
@@ -130,7 +132,7 @@ async function captureJobCardScreenshot(jobBody, job, index) {
 async function login(page) {
   log('Navigating to login page...');
   await page.goto(process.env.FRONTLINE_LOGIN_URL);
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle' to 'domcontentloaded'
   await humanDelay(1000, 3000);
 
   log('Entering username...');
@@ -158,7 +160,7 @@ async function login(page) {
   log('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle'
   await humanDelay(1000, 3000);
 
   try {
@@ -192,9 +194,7 @@ async function navigateToAvailableJobs(page) {
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 10000 });
   await humanDelay(1000, 2000);
 
-  const timestamp = Date.now();
-  await page.screenshot({ path: path.join(__dirname, 'debug', `02-available-jobs-${timestamp}.png`) });
-  log('Available Jobs tab loaded - screenshot saved');
+  log('Available Jobs tab loaded');
 }
 
 async function scrapeJobs(page) {
@@ -268,7 +268,7 @@ async function main() {
 
     log('Launching browser...');
     browser = await chromium.launch({
-      headless: true,
+      headless: false, // Set to false to see the browser in action
       args: ['--disable-blink-features=AutomationControlled'],
     });
 
@@ -287,6 +287,14 @@ async function main() {
     await login(page);
     await navigateToAvailableJobs(page);
     const jobsData = await scrapeJobs(page);
+
+    // Take screenshot of available jobs page with job count in filename
+    const timestamp = Date.now();
+    const jobCount = jobsData.length;
+    await page.screenshot({
+      path: path.join(__dirname, 'debug', `02-available-jobs-${jobCount}jobs-${timestamp}.png`)
+    });
+    log(`Available Jobs screenshot saved: ${jobCount} jobs found`);
 
     const matchedJobs = [];
     for (const { job, jobBody, index } of jobsData) {
@@ -339,6 +347,9 @@ async function main() {
 
     notifiedJobs = cleanOldNotifications(notifiedJobs);
     await saveNotifiedJobs(notifiedJobs);
+
+    // Clean up old debug files (screenshots and HTML)
+    await cleanupOldDebugFiles(DEBUG_FILE_RETENTION_DAYS);
 
     log(`=== Scraper run complete ===`);
     log(`Total jobs: ${jobsData.length}`);

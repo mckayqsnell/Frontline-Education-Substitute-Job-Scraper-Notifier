@@ -74,7 +74,7 @@ export function formatJobNotification(job, uncertain = false) {
   message += `⏰ <b>Time:</b> ${job.startTime} - ${job.endTime}\n`;
   message += `⏱️ <b>Duration:</b> ${job.duration}\n`;
   message += `🔢 <b>Job #:</b> ${job.jobNumber}\n\n`;
-  message += '👉 <b>Log in to Frontline to accept!</b>';
+  message += `👉 <b><a href="${process.env.FRONTLINE_LOGIN_URL}">Click here to log in and book!</a></b>`;
 
   return message;
 }
