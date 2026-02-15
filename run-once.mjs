@@ -131,8 +131,7 @@ async function captureJobCardScreenshot(jobBody, job, index) {
 
 async function login(page) {
   log('Navigating to login page...');
-  await page.goto(process.env.FRONTLINE_LOGIN_URL);
-  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle' to 'domcontentloaded'
+  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await humanDelay(1000, 3000);
 
   log('Entering username...');
@@ -160,7 +159,7 @@ async function login(page) {
   log('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle'
+  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
   await humanDelay(1000, 3000);
 
   try {

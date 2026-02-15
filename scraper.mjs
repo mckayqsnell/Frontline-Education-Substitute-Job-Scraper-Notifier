@@ -182,8 +182,7 @@ async function captureJobCardScreenshot(jobBody, job, index) {
  */
 async function login(page) {
   logToFile('Navigating to login page...');
-  await page.goto(process.env.FRONTLINE_LOGIN_URL);
-  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle' to 'domcontentloaded'
+  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await humanDelay(1000, 3000);
 
   // Type username with human-like delays
@@ -214,7 +213,7 @@ async function login(page) {
   logToFile('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('domcontentloaded'); // Changed from 'networkidle'
+  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
   await humanDelay(1000, 3000);
 
   // Handle "Important Notifications" popup if it appears
