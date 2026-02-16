@@ -526,8 +526,8 @@ async function main() {
       }
     }
 
-    // 10. Send summary notification
-    if (jobsData.length > 0 || newJobsNotified > 0) {
+    // 10. Send summary notification (only when there are matching jobs)
+    if (newJobsNotified > 0) {
       try {
         await sendSummaryNotification(jobsData.length, matchedJobs.length, newJobsNotified);
       } catch (error) {

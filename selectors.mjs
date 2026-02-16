@@ -47,6 +47,15 @@ export const SELECTORS = {
       endTime: '.endTime',
       duration: '.durationName',
       location: '.locationName',
-    }
+    },
+
+    // Job card action buttons (for future auto-booking)
+    actions: {
+      acceptButton: 'a.acceptButton',
+      rejectButton: 'a.rejectButton',
+      seeDetailsButton: 'a.showDetailsButton',
+      hideDetailsButton: 'a.hideDetailsButton',
+      cancelButton: 'a.cancelButton',
+    },
   }
 };
