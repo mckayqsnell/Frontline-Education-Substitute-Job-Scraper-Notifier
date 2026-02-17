@@ -66,41 +66,49 @@ export const REJECTED_SCHOOLS = [
 export const ACCEPTED_SUBJECTS = [
   // History / Social Sciences
   'history',
-  'us history',
-  'world history',
-  'american history',
-  'european history',
   'government',
   'geography',
-  'economics',
+  'econ',        // matches "econ", "economics", "home economics", etc.
   'sociology',
   'psychology',
   'social studies',
   'political science',
   'civics',
+  'humanities',
 
-  // English / Language Arts (NEW)
+  // English / Language Arts
   'english',
   'language arts',
   'ela',
   'literature',
   'writing',
   'composition',
+  'reading',
 
   // Music (excluding choir/chorus)
   'band',
   'orchestra',
   'music',
 
+  // Math
+  'math',       // matches "math", "mathematics", etc.
+  'algebra',
+  'geometry',
+  'calculus',
+  'statistics',
+
   // Sciences
   'science',
   'biology',
   'chemistry',
   'physics',
-  'earth science',
-  'environmental science',
   'anatomy',
   'physiology',
+
+  // CTE (Career and Technical Education)
+  'cte',
+  'career and technical',
+  'career tech',
 
   // Arts
   'art',
@@ -111,6 +119,7 @@ export const ACCEPTED_SUBJECTS = [
   'drama',
   'theater',
   'theatre',
+  'performing arts',
 ];
 
 /**
@@ -124,39 +133,34 @@ export const REJECTED_SUBJECTS = [
   'german',
   'chinese',
   'japanese',
-  'asl',
   'sign language',
-  'esl',
-  'ell',
   'english language learner',
 
-  // Math and Computer Science
-  'math',
-  'mathematics',
-  'algebra',
-  'geometry',
-  'calculus',
-  'statistics',
+  // Computer Science
   'computer science',
-  'cs',
   'coding',
   'programming',
 
-  // Choir (NEW)
+  // Choir
   'choir',
   'chorus',
   'choral',
 
   // Other subjects to avoid
-  'health',
-  'pe',
   'physical education',
   'gym',
   'drivers ed',
   'driver education',
-  'home economics',
   'special education',
+  'special ed',
   'sped',
+
+  // NOTE: Removed short abbreviations that caused false rejections:
+  // "cs" → matched inside "physics", "economics"
+  // "pe" → matched inside "performing", "special"
+  // "ell" → matched inside "spelling"
+  // "asl", "esl" → too short, could match substrings
+  // The full forms above cover these cases adequately.
 ];
 
 // ============================================================================

@@ -31,7 +31,7 @@ export const SELECTORS = {
     jobBodies: '#availableJobs tbody.job', // Each job is a tbody element
     noDataRow: 'tr.noData', // Shows "no available assignments" message when empty
 
-    // Within each tbody.job, there are two rows: summary and detail
+    // Within each tbody.job, there are a summary row and one or more detail rows
     summary: {
       row: 'tr.summary',
       teacherName: '.name',
@@ -41,15 +41,28 @@ export const SELECTORS = {
     },
 
     detail: {
-      row: 'tr.detail',
+      row: 'tr.detail',           // First detail row (all jobs have this)
+      allRows: 'tr.detail',       // All detail rows (multi-day jobs have multiple)
       date: '.itemDate',
+      multiEndDate: '.multiEndDate', // End date for multi-day jobs (e.g., "Fri, 2/20/2026")
       startTime: '.startTime',
       endTime: '.endTime',
       duration: '.durationName',
       location: '.locationName',
     },
 
+    // Multi-day job detection
+    // Multi-day jobs have tbody.job.multiday class
+    // Collapsed: tbody.job.multiday.collapsed (shows "See Details" button)
+    // Expanded: tbody.job.multiday.expanded (shows "Accept Multi-day" + "Hide Details")
+    multiDay: {
+      jobBody: 'tbody.job.multiday',         // Multi-day job tbody
+      additionalRows: 'tr.detail.multiDetail', // Extra detail rows (2nd, 3rd day, etc.)
+    },
+
     // Job card action buttons (for future auto-booking)
+    // Single-day: click acceptButton directly
+    // Multi-day: click seeDetailsButton first, then acceptButton (shows "Accept Multi-day")
     actions: {
       acceptButton: 'a.acceptButton',
       rejectButton: 'a.rejectButton',

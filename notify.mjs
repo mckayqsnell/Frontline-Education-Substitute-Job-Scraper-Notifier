@@ -66,14 +66,30 @@ export function formatJobNotification(job, uncertain = false) {
     message += '⚠️ <b>UNCERTAIN MATCH</b> — Review this one:\n\n';
   }
 
-  message += '🏫 <b>New Sub Job Available!</b>\n\n';
-  message += `📅 <b>Date:</b> ${job.date}\n`;
-  message += `🏫 <b>School:</b> ${job.school}\n`;
-  message += `📚 <b>Subject:</b> ${job.position}\n`;
-  message += `👤 <b>Teacher:</b> ${job.teacher}\n`;
-  message += `⏰ <b>Time:</b> ${job.startTime} - ${job.endTime}\n`;
-  message += `⏱️ <b>Duration:</b> ${job.duration}\n`;
-  message += `🔢 <b>Job #:</b> ${job.jobNumber}\n\n`;
+  if (job.isMultiDay && job.days.length > 0) {
+    // Multi-day job format
+    message += '🏫 <b>New Multi-Day Sub Job Available!</b>\n\n';
+    message += `📚 <b>Subject:</b> ${job.position}\n`;
+    message += `🏫 <b>School:</b> ${job.school}\n`;
+    message += `👤 <b>Teacher:</b> ${job.teacher}\n`;
+    message += `🔢 <b>Job #:</b> ${job.jobNumber}\n\n`;
+    message += `📅 <b>Days (${job.days.length}):</b>\n`;
+    for (const day of job.days) {
+      message += `  • ${day.date} — ${day.startTime}-${day.endTime} (${day.duration})\n`;
+    }
+    message += '\n';
+  } else {
+    // Single-day job format
+    message += '🏫 <b>New Sub Job Available!</b>\n\n';
+    message += `📅 <b>Date:</b> ${job.date}\n`;
+    message += `🏫 <b>School:</b> ${job.school}\n`;
+    message += `📚 <b>Subject:</b> ${job.position}\n`;
+    message += `👤 <b>Teacher:</b> ${job.teacher}\n`;
+    message += `⏰ <b>Time:</b> ${job.startTime} - ${job.endTime}\n`;
+    message += `⏱️ <b>Duration:</b> ${job.duration}\n`;
+    message += `🔢 <b>Job #:</b> ${job.jobNumber}\n\n`;
+  }
+
   message += `👉 <b><a href="${process.env.FRONTLINE_LOGIN_URL}">Click here to log in and book!</a></b>`;
 
   return message;

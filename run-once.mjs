@@ -221,7 +221,11 @@ async function scrapeJobs(page) {
 
     try {
       const summaryRow = jobBody.locator(SELECTORS.jobs.summary.row);
-      const detailRow = jobBody.locator(SELECTORS.jobs.detail.row);
+      const firstDetailRow = jobBody.locator(SELECTORS.jobs.detail.row).first();
+
+      // Check if this is a multi-day job (tbody has class "multiday")
+      const classAttr = await jobBody.getAttribute('class') || '';
+      const isMultiDay = classAttr.includes('multiday');
 
       const job = {
         teacher: await summaryRow.locator(SELECTORS.jobs.summary.teacherName).textContent().catch(() => 'N/A'),
@@ -229,13 +233,37 @@ async function scrapeJobs(page) {
         reportTo: await summaryRow.locator(SELECTORS.jobs.summary.reportTo).textContent().catch(() => 'N/A'),
         jobNumber: await summaryRow.locator(SELECTORS.jobs.summary.confirmationNumber).textContent().catch(() => 'N/A'),
 
-        date: await detailRow.locator(SELECTORS.jobs.detail.date).textContent().catch(() => 'N/A'),
-        startTime: await detailRow.locator(SELECTORS.jobs.detail.startTime).textContent().catch(() => 'N/A'),
-        endTime: await detailRow.locator(SELECTORS.jobs.detail.endTime).textContent().catch(() => 'N/A'),
-        duration: await detailRow.locator(SELECTORS.jobs.detail.duration).textContent().catch(() => 'N/A'),
-        school: await detailRow.locator(SELECTORS.jobs.detail.location).textContent().catch(() => 'N/A'),
+        // Primary date/time/location from first detail row
+        date: await firstDetailRow.locator(SELECTORS.jobs.detail.date).textContent().catch(() => 'N/A'),
+        startTime: await firstDetailRow.locator(SELECTORS.jobs.detail.startTime).textContent().catch(() => 'N/A'),
+        endTime: await firstDetailRow.locator(SELECTORS.jobs.detail.endTime).textContent().catch(() => 'N/A'),
+        duration: await firstDetailRow.locator(SELECTORS.jobs.detail.duration).textContent().catch(() => 'N/A'),
+        school: await firstDetailRow.locator(SELECTORS.jobs.detail.location).textContent().catch(() => 'N/A'),
+
+        isMultiDay,
+        days: [],
       };
 
+      // For multi-day jobs, scrape all detail rows to get each day's info
+      if (isMultiDay) {
+        const allDetailRows = await jobBody.locator(SELECTORS.jobs.detail.allRows).all();
+        for (const row of allDetailRows) {
+          const day = {
+            date: await row.locator(SELECTORS.jobs.detail.date).textContent().catch(() => 'N/A'),
+            startTime: await row.locator(SELECTORS.jobs.detail.startTime).textContent().catch(() => 'N/A'),
+            endTime: await row.locator(SELECTORS.jobs.detail.endTime).textContent().catch(() => 'N/A'),
+            duration: await row.locator(SELECTORS.jobs.detail.duration).textContent().catch(() => 'N/A'),
+            location: await row.locator(SELECTORS.jobs.detail.location).textContent().catch(() => 'N/A'),
+          };
+          Object.keys(day).forEach(key => {
+            if (typeof day[key] === 'string') day[key] = day[key].trim();
+          });
+          job.days.push(day);
+        }
+        log(`  Multi-day job detected: ${job.days.length} days`);
+      }
+
+      // Clean up whitespace on main fields
       Object.keys(job).forEach(key => {
         if (typeof job[key] === 'string') {
           job[key] = job[key].trim();
