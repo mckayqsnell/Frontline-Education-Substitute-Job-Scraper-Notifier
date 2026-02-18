@@ -1,423 +1,202 @@
 # Frontline Education Substitute Job Scraper & Notifier
 
-Automated web scraper that monitors Frontline Education (formerly AESOP) for substitute teaching jobs, filters them based on your criteria, and sends Telegram notifications when matching opportunities appear.
+Automated web scraper that monitors [Frontline Education](https://www.frontlineeducation.com/) (formerly AESOP) for substitute teaching jobs, filters them based on configurable criteria, and sends Telegram notifications with one-tap booking. Runs as a persistent macOS daemon checking every 30 seconds.
+
+Built because services like [SubSideKick](https://subsidekick.com/) charge $10/month for similar functionality.
 
 ## Features
 
-- ✅ **Automated scraping** every 10 minutes via macOS launchd
-- 🎯 **Smart filtering** by school level, subject, duration, and blacklisted schools
-- 📱 **Telegram notifications** with clickable links for instant booking
-- 🚫 **Duplicate prevention** - tracks notified jobs to avoid repeat notifications
-- 🤖 **Human-like behavior** - random delays to avoid bot detection
-- 💻 **Lid-closed operation** - works with MacBook lid closed when on AC power
-- 📸 **Debug capture** - screenshots and DOM logs for troubleshooting
-- 🔮 **Future-ready** - prepared for automated job booking with Telegram bot confirmation
+- **Persistent daemon** — checks every 30 seconds (not cold-start intervals)
+- **Smart filtering** — school level, subject, duration, blacklisted schools, nearby schools, blackout dates
+- **Telegram notifications** with inline Book/Ignore buttons
+- **Auto-booking** — certain matches 3+ days out are booked instantly (safe cancellation window)
+- **Monitoring dashboard** — local web UI with live stats, charts, and log viewer
+- **Human-like behavior** — random delays and typing patterns to avoid bot detection
+- **Self-healing** — automatic session recovery, browser restarts, crash recovery via launchd
+- **Lid-closed operation** — works with MacBook lid closed on AC power
 
-## Operating Hours
+## How It Works
 
-The scraper runs:
-- **Every day** (Monday - Sunday)
-- **5:00 AM - 11:00 PM** Mountain Time
-
-Outside these hours, the scraper exits immediately when triggered by launchd.
+```
+Daemon Loop (every 30 seconds):
+  1. Refresh page (detect session expiry → auto re-login)
+  2. Poll Telegram for Book/Ignore button presses
+  3. Execute any pending bookings
+  4. Scrape available jobs
+  5. Filter against criteria (school, subject, duration, blackout dates)
+  6. For certain matches 3+ days away → auto-book immediately
+  7. For uncertain matches or close dates → send Book/Ignore buttons
+  8. Write heartbeat + stats for dashboard
+```
 
 ## Prerequisites
 
-- **macOS** (Apple Silicon or Intel)
-- **Node.js v22+** (installed via nvm recommended)
+- **macOS** (uses launchd for scheduling)
+- **Node.js v22+** (via nvm recommended)
 - **pnpm** package manager
-- **Telegram** account with:
-  - Bot created via [@BotFather](https://t.me/botfather)
-  - Bot added to a group chat
-  - Bot token and chat ID ready
+- **Telegram** account with a bot (created via [@BotFather](https://t.me/botfather))
 
-## Installation
-
-### 1. Clone/Download Project
+## Quick Start
 
 ```bash
-cd ~/personal_projects
-# Project should be at: /Users/mckaysnell/personal_projects/sub_teacher_scaper
-```
-
-### 2. Install Dependencies
-
-```bash
+# 1. Clone and install
+git clone <repo-url>
 cd sub_teacher_scaper
 pnpm install
-```
-
-This will install:
-- `playwright` - Browser automation
-- `dotenv` - Environment variables
-- `node-telegram-bot-api` - Telegram notifications
-
-### 3. Install Playwright Chromium
-
-```bash
 pnpm exec playwright install chromium
-```
 
-### 4. Configure Environment Variables
-
-The `.env` file should already exist with your credentials. If not, create it:
-
-```bash
+# 2. Configure credentials
 cp .env.example .env
-```
+# Edit .env with your Frontline and Telegram credentials
 
-Then edit `.env` and fill in:
-
-```env
-# Frontline Education Credentials
-FRONTLINE_USERNAME=your_username
-FRONTLINE_PASSWORD="your_password"
-FRONTLINE_LOGIN_URL=https://login.frontlineeducation.com/login?signin=...
-
-# Telegram Bot Configuration
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-```
-
-**Note:** Use quotes around the password if it starts with special characters (like `=`).
-
-### 5. Test Telegram Connection
-
-```bash
+# 3. Test Telegram connection
 pnpm run test-notify
-```
 
-You should see a test message in your Telegram group chat. If not, verify your bot token and chat ID.
-
-### 6. Test Manual Scrape
-
-```bash
+# 4. Test scraper manually (visible browser)
 pnpm run scrape
-```
 
-This will:
-- Launch browser
-- Login to Frontline
-- Scrape available jobs
-- Filter based on criteria
-- Send notifications for matches
-- Save screenshots to `debug/`
-- Log activity to `logs/scraper.log`
-
-**Check the output:**
-- `logs/scraper.log` - Full activity log
-- `debug/` - Screenshots of login and available jobs page
-- `logs/job-card-dom-examples.html` - Captured DOM structure of matching jobs (for future auto-booking)
-
-### 7. Verify Selectors (if needed)
-
-If jobs aren't being scraped correctly:
-
-1. Open the most recent `debug/02-available-jobs-{N}jobs-[timestamp].png`
-2. Compare with `selectors.mjs`
-3. Update selectors if Frontline's UI has changed
-4. Re-run `pnpm run scrape` to test
-
-### 8. Enable Scheduled Runs
-
-Once manual testing works:
-
-```bash
+# 5. Start the persistent daemon
 pnpm run schedule
 ```
 
-This creates a launchd agent that runs the scraper every 10 minutes.
+## Environment Variables
 
-## Usage
+Create a `.env` file from `.env.example`:
 
-### Check if Schedule is Running
+| Variable | Description |
+|----------|-------------|
+| `FRONTLINE_USERNAME` | Your Frontline Education username |
+| `FRONTLINE_PASSWORD` | Your password (quote if it has special chars) |
+| `FRONTLINE_LOGIN_URL` | Full login URL for your school district |
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
+| `TELEGRAM_CHAT_ID` | Chat ID (negative number for groups) |
 
-```bash
-launchctl list | grep subjobs
-```
+## Commands
 
-If running, you'll see output like:
-```
--	0	com.subjobs.scraper
-```
-
-### View Logs
-
-**Scraper activity log:**
-```bash
-tail -f logs/scraper.log
-```
-
-**launchd stdout/stderr:**
-```bash
-tail -f logs/launchd-stdout.log
-tail -f logs/launchd-stderr.log
-```
-
-### Stop Scheduled Runs
-
-```bash
-pnpm run unschedule
-```
-
-### Run Manually (for testing)
-
-```bash
-pnpm run scrape
-```
-
-This runs once immediately, ignoring operating hours.
-
-### Visual vs Headless Browser Mode
-
-The project supports both visible and headless browser operation:
-
-**Scheduled runs** (automatic):
-- Uses headless mode (no visible browser)
-- Runs silently in background
-- Optimized for automation
-
-**Manual testing** (`pnpm run scrape`):
-- Shows visible browser window
-- Watch the automation in real-time
-- Useful for debugging and verification
-
-This allows you to test visually anytime without affecting automated scheduled runs.
-
-### Run with MacBook Lid Closed
-
-The scraper works with the MacBook lid closed if:
-- ✅ Connected to AC power
-- ✅ Connected to WiFi
-- ✅ Mac configured to not sleep on AC power
-
-**Verify your power settings:**
-```bash
-pmset -g custom
-```
-
-Look for `AC Power: sleep 0` - this means your Mac won't sleep when plugged in.
-
-**If needed, disable sleep on AC power:**
-```bash
-sudo pmset -c sleep 0
-```
-
-This allows the scraper to run every 10 minutes even with the lid closed.
+| Command | Description |
+|---------|-------------|
+| `pnpm run scrape` | Run once manually (visible browser, ignores operating hours) |
+| `pnpm run daemon` | Run daemon in foreground (for development) |
+| `pnpm run schedule` | Install as launchd persistent daemon |
+| `pnpm run unschedule` | Stop and remove launchd daemon |
+| `pnpm run dashboard` | Start monitoring dashboard (http://localhost:3847) |
+| `pnpm run test-notify` | Test Telegram connection |
 
 ## Filtering Criteria
 
-### Accepted School Levels
-- High School
-- Junior High / Jr. High
-- Middle School
+All filters are configured in `filters.mjs`.
 
-### Rejected School Levels
-- Elementary
-- Primary
-- Kindergarten
-- Pre-K
+### School Levels
+- **Accepted**: High School, Junior High, Middle School, Intermediate
+- **Rejected**: Elementary, Primary, Kindergarten, Pre-K
 
-### Accepted Subjects
-- **History/Social Sciences**: US History, World History, Government, Geography, Economics, Sociology, Psychology, Political Science, Civics
-- **English/Language Arts**: English, Literature, Writing, Composition
-- **Music**: Band, Orchestra (NOT choir)
-- **Sciences**: Biology, Chemistry, Physics, Earth Science, Environmental Science, Anatomy
-- **Arts**: Art, Visual Arts, Drawing, Painting, Ceramics, Drama, Theater/Theatre
+### Subjects
+- **Accepted**: History, English/LA, Math, Science, Music (band/orchestra), Arts, CTE, Drama
+- **Rejected**: Foreign languages, Computer Science, Choir, PE, Special Ed, Driver's Ed
 
-### Rejected Subjects
-- **Languages**: Spanish, French, German, Chinese, Japanese, ASL, ESL
-- **Math & Computer Science**: Math, Algebra, Geometry, Calculus, Statistics, Computer Science, Coding
-- **Choir**: Choir, Chorus, Choral
-- **Other**: Health, PE, Physical Education, Gym, Driver's Ed, Home Economics, Special Education
+### Schools
+- **Blacklisted**: Specific schools that return uncertain matches even for accepted subjects
+- **Nearby**: Schools near your area get special half-day handling
 
-### Blacklisted Schools
-- Westlake High School
-- Saratoga Springs
-- Vista Heights Middle School
-
-### Duration Requirement
-- **Only "Full Day" jobs** are accepted
-- Half Day (AM/PM) jobs are automatically rejected
-
-## Telegram Notifications
-
-When a matching job is found, you'll receive a Telegram notification with:
-
-- 📅 **Date**: When the job is scheduled
-- 🏫 **School**: School name
-- 📚 **Subject**: Position/subject area
-- 👤 **Teacher**: Teacher's name
-- ⏰ **Time**: Start and end times
-- ⏱️ **Duration**: Full Day (or duration type)
-- 🔢 **Job #**: Confirmation number
-- 🔗 **Clickable link**: Direct link to Frontline login page
-
-**Click the link in the notification to instantly open Frontline and book the job!** The link takes you directly to the login page, so you can quickly log in and claim the position before other substitutes.
-
-## Modifying Filters
-
-Edit `filters.mjs` to change criteria:
-
-**Add an accepted subject:**
+### Blackout Dates
+Block specific dates or date ranges (trips, days off, etc.):
 ```javascript
-export const ACCEPTED_SUBJECTS = [
-  // ... existing subjects
-  'forensics', // Add new subject
+export const BLACKOUT_DATES = [
+  { start: '2026-03-18', end: '2026-04-08', label: 'Korea trip' },
+  { start: '2026-04-13', end: '2026-04-13', label: 'Birthday' },
 ];
 ```
 
-**Add a blacklisted school:**
-```javascript
-export const REJECTED_SCHOOLS = [
-  // ... existing schools
-  'another school name',
-];
+### Duration
+- Only **Full Day** jobs are accepted (Half Day rejected by default)
+
+## Auto-Booking Logic
+
+| Condition | Action |
+|-----------|--------|
+| Certain match + 3+ days away | Auto-book immediately |
+| Uncertain match (any date) | Send Book/Ignore buttons (5 min expiry) |
+| Certain match + < 3 days away | Send Book/Ignore buttons (5 min expiry) |
+| Blackout date | Reject entirely |
+
+The 3-day threshold provides a cancellation buffer (Frontline's cutoff is 48 hours).
+
+## Monitoring Dashboard
+
+```bash
+pnpm run dashboard
+# Open http://localhost:3847
 ```
 
-**Change operating hours:**
+Shows live stats, 14-day history charts, recent checks, error log, and booking actions. Auto-refreshes every 30 seconds.
 
-Edit `utils.mjs`:
-```javascript
-export function isOperatingHours() {
-  const now = getCurrentMountainTime();
-  const hour = now.getHours();
+## Daemon Management
 
-  // Change these values:
-  const isActiveHours = hour >= 5 && hour < 23; // 5 AM to 11 PM
+```bash
+# Check if running
+launchctl list | grep subjobs
 
-  return isActiveHours;
-}
+# View logs
+tail -f logs/scraper.log
+
+# Check heartbeat (should be < 2 min old)
+cat data/heartbeat.json
+
+# Restart
+pnpm run unschedule && pnpm run schedule
 ```
 
-**Change debug file retention:**
+### Lid-Closed Operation
 
-Debug screenshots are automatically cleaned up to prevent disk space issues. By default, files older than 3 days are deleted at the end of each scraper run.
-
-To change the retention period, edit the `DEBUG_FILE_RETENTION_DAYS` constant in both `scraper.mjs` and `run-once.mjs`:
-
-```javascript
-// Keep debug screenshots for 3 days (108 runs/day = ~324 screenshots/day)
-const DEBUG_FILE_RETENTION_DAYS = 3; // Change to desired number of days
+Works with MacBook lid closed if on AC power + WiFi. Verify with:
+```bash
+pmset -g custom
+# Look for "AC Power: sleep 0"
+# If not set: sudo pmset -c sleep 0
 ```
-
-With default settings (3 days), you'll have approximately 650-700 screenshots in the `debug/` folder at any given time.
-
-## Debug Screenshots
-
-Screenshots are automatically captured during each run and include helpful information in the filename:
-
-- **`01-after-login-{timestamp}.png`** - Login page state (for debugging authentication)
-- **`02-available-jobs-{N}jobs-{timestamp}.png`** - Available jobs page where `{N}` is the number of jobs found
-  - Example: `02-available-jobs-5jobs-1234567890.png` means 5 jobs were present
-  - Example: `02-available-jobs-0jobs-1234567890.png` means no jobs found
-- **`job-card-{index}-{date}-{timestamp}.png`** - Individual matching job cards (for future auto-booking)
-- **`error-{timestamp}.png`** - Error state screenshots (when something goes wrong)
-
-This makes it easy to identify at a glance which screenshots contain actual job listings vs. empty results.
 
 ## File Structure
 
 ```
 sub_teacher_scaper/
-├── .env                           # Environment variables (gitignored)
-├── .env.example                   # Template for .env
-├── .gitignore                     # Git ignore rules
-├── package.json                   # Dependencies and scripts
-├── README.md                      # This file
-├── CLAUDE.md                      # Project context for Claude Code
-│
-├── scraper.mjs                    # Main scraper logic
-├── filters.mjs                    # Job filtering rules
-├── notify.mjs                     # Telegram notification helpers
-├── selectors.mjs                  # DOM selectors
-├── utils.mjs                      # Shared utility functions
-│
-├── test-notify.mjs                # Test Telegram connection
-├── run-once.mjs                   # Manual one-off run
-├── install-schedule.sh            # Install launchd agent
-├── uninstall-schedule.sh          # Remove launchd agent
-│
-├── data/
-│   └── notified-jobs.json         # Tracks notified jobs
-│
-├── debug/
-│   ├── 01-after-login-*.png              # Login screenshots
-│   ├── 02-available-jobs-{N}jobs-*.png   # Available jobs page (N = job count, e.g., 5jobs or 0jobs)
-│   ├── job-card-*.png                    # Individual job card screenshots (matching jobs only)
-│   └── error-*.png                       # Error screenshots
-│   # Note: Files older than 3 days are automatically cleaned up
-│
-└── logs/
-    ├── scraper.log                # Main activity log
-    ├── job-card-dom-examples.html # DOM structure of matching jobs (for future auto-booking)
-    ├── launchd-stdout.log         # launchd stdout
-    └── launchd-stderr.log         # launchd stderr
+├── scraper.mjs              # Persistent daemon (login, scrape, filter, auto-book)
+├── filters.mjs              # Filtering rules (schools, subjects, blackout dates)
+├── notify.mjs               # Telegram notifications + inline keyboards
+├── selectors.mjs            # DOM selectors for Frontline UI
+├── utils.mjs                # Shared utilities (delays, logging, heartbeat, stats)
+├── run-once.mjs             # One-shot manual testing (visible browser)
+├── test-notify.mjs          # Test Telegram connection
+├── install-schedule.sh      # Install launchd daemon
+├── uninstall-schedule.sh    # Remove launchd daemon
+├── dashboard/
+│   ├── server.mjs           # Dashboard HTTP server (port 3847)
+│   └── public/              # Dashboard frontend (Chart.js)
+├── data/                    # Runtime data (gitignored)
+│   ├── notified-jobs.json   # Job state machine
+│   ├── scraper-stats.json   # Stats for dashboard
+│   └── heartbeat.json       # Daemon health check
+├── debug/                   # Screenshots (gitignored, auto-cleaned)
+└── logs/                    # Log files (gitignored, auto-rotated)
 ```
 
 ## Troubleshooting
 
-### Telegram notifications not sending
+| Problem | Solution |
+|---------|----------|
+| Jobs not being scraped | Check `debug/02-available-jobs-*.png`, update `selectors.mjs` |
+| Login failing | Verify `.env` credentials, check `debug/01-after-login-*.png` |
+| Notifications not sending | Run `pnpm run test-notify`, check bot token + chat ID |
+| Daemon seems stuck | Check `cat data/heartbeat.json` (>2 min = stuck), restart |
+| Auto-booking not working | Check `data/notified-jobs.json` status field, check debug screenshots |
 
-1. Test connection: `pnpm run test-notify`
-2. Verify bot token and chat ID in `.env`
-3. Ensure bot is member of the group chat
-4. Check logs for errors: `tail -f logs/scraper.log`
+## Tech Stack
 
-### Jobs not being scraped
-
-1. Check screenshots: `ls -lt debug/02-available-jobs-*.png | head -5` (look for ones with job count > 0)
-2. Open recent screenshot with jobs: `open debug/02-available-jobs-*jobs-*.png`
-3. Verify selectors match current Frontline UI structure
-4. Update `selectors.mjs` if needed
-5. Re-test with `pnpm run scrape`
-
-**Tip:** Screenshot filenames include job count (e.g., `5jobs` or `0jobs`), making it easy to find examples with actual jobs.
-
-### Login failing
-
-1. Verify credentials in `.env`
-2. Check screenshot: `open debug/01-after-login-*.png`
-3. Ensure password is quoted if it starts with special characters
-4. Test manually: `pnpm run scrape`
-
-### Schedule not running
-
-1. Check if loaded: `launchctl list | grep subjobs`
-2. View launchd errors: `tail -f logs/launchd-stderr.log`
-3. Verify Node.js path in `install-schedule.sh` matches your installation: `which node`
-4. Reload schedule: `pnpm run unschedule && pnpm run schedule`
-
-### Outside operating hours
-
-If the scraper exits immediately with "Outside operating hours", this is normal behavior during:
-- **12:00 AM - 4:59 AM** (midnight to 5 AM)
-- **11:00 PM - 11:59 PM** (after 11 PM)
-
-## Future Features
-
-### Automated Job Booking
-
-The scraper is prepared for future automated booking with:
-
-1. **DOM capture** - Matching job cards are logged to `logs/job-card-dom-examples.html`
-2. **Screenshots** - Individual job cards saved to `debug/job-card-*.png`
-3. **Placeholder functions** - `bookJob()` and `notifyAndAwaitConfirmation()` ready for implementation
-
-When ready to implement auto-booking:
-1. Use captured DOM examples to identify the "Accept/Book" button selector
-2. Add selector to `selectors.mjs`
-3. Implement the `bookJob()` function in `scraper.mjs`
-4. Enhance Telegram bot to support inline keyboard (Yes/No buttons)
-5. Implement callback handling for user responses
-
-## Support
-
-For issues or questions:
-- Check `logs/scraper.log` for detailed activity
-- Examine `debug/` screenshots for visual debugging
-- Review `CLAUDE.md` for project context and development guidelines
+- **[Playwright](https://playwright.dev/)** — browser automation
+- **[Telegram Bot API](https://core.telegram.org/bots/api)** — notifications via direct HTTP (no library wrapper)
+- **[Chart.js](https://www.chartjs.org/)** — dashboard charts
+- **Node.js** built-in `http` module — dashboard server (zero dependencies)
+- **macOS launchd** — process management (KeepAlive daemon)
 
 ## License
 
-Personal project - Not for redistribution
+MIT

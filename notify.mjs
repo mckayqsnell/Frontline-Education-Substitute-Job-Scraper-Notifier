@@ -162,8 +162,33 @@ ${notifiedJobs > 0 ? '👆 Check messages above for details!' : '💤 No new job
 // ============================================================================
 
 /**
- * Send an auto-booking notification (no buttons — just informing the user).
- * The message will be updated later with the booking result.
+ * Format compact job details block (reused across all auto-book message stages).
+ */
+function formatJobDetails(job) {
+  let details = '';
+  details += `📚 <b>Subject:</b> ${job.position}\n`;
+  details += `🏫 <b>School:</b> ${job.school}\n`;
+
+  if (job.isMultiDay && job.days.length > 0) {
+    details += `📅 <b>Days (${job.days.length}):</b>\n`;
+    for (const day of job.days) {
+      details += `  • ${day.date} — ${day.startTime}-${day.endTime} (${day.duration})\n`;
+    }
+  } else {
+    details += `📅 <b>Date:</b> ${job.date}\n`;
+    details += `⏰ <b>Time:</b> ${job.startTime} - ${job.endTime}\n`;
+    details += `⏱️ <b>Duration:</b> ${job.duration}\n`;
+  }
+
+  details += `👤 <b>Teacher:</b> ${job.teacher}\n`;
+  details += `🔢 <b>Job #:</b> ${job.jobNumber}`;
+  return details;
+}
+
+/**
+ * Send an auto-booking "in progress" notification.
+ * Shows job details and tells the user we're attempting to book it now.
+ * This message gets updated later with the result (booked/taken/error).
  * @param {Object} job - The job object
  * @param {number} daysAhead - How many days until the job
  * @returns {Promise<number|null>} The message_id from Telegram (for later editing)
@@ -173,8 +198,14 @@ export async function sendAutoBookNotification(job, daysAhead) {
     throw new Error('Telegram credentials not configured in .env file');
   }
 
-  const jobText = formatJobNotification(job, false);
-  const text = `🤖 <b>AUTO-BOOKING</b> (${daysAhead} days away, safe to cancel)\n\n${jobText}`;
+  const details = formatJobDetails(job);
+  const text = [
+    `🤖 <b>NEW JOB FOUND — AUTO-BOOKING...</b>`,
+    ``,
+    details,
+    ``,
+    `⏳ <i>Attempting to book this job now (${daysAhead} days away)...</i>`,
+  ].join('\n');
 
   const url = `${TELEGRAM_API_URL}/sendMessage`;
   const payload = {
@@ -317,31 +348,100 @@ export async function answerCallback(callbackQueryId, text) {
 }
 
 /**
- * Edit an existing Telegram message to update its text and remove the inline keyboard.
- * Used after a booking action (book/ignore/expire/fail).
+ * Edit an existing Telegram message to reflect the booking outcome.
+ *
+ * Status values:
+ *   'booked'  — Successfully booked (shows cancel link)
+ *   'taken'   — Someone else got it first (low severity, no link)
+ *   'error'   — Something went wrong during booking (shows manual link)
+ *   'ignored' — User tapped Ignore
+ *   'expired' — Book/Ignore buttons expired (5 min)
+ *
  * @param {number} messageId - The message_id to edit
  * @param {Object} job - The job object
  * @param {boolean} uncertain - Whether this was an uncertain match
- * @param {string} statusLine - Status text to append (e.g., "✅ BOOKED", "❌ IGNORED")
+ * @param {string} status - One of: 'booked', 'taken', 'error', 'ignored', 'expired'
  * @param {object} [options] - Optional settings
  * @param {boolean} [options.autoBooked] - Whether this was an auto-booked job
- * @param {number} [options.daysAhead] - Days ahead (for auto-book prefix)
+ * @param {number} [options.daysAhead] - Days ahead (for auto-book context)
  * @returns {Promise<void>}
  */
-export async function updateMessageAfterAction(messageId, job, uncertain, statusLine, options = {}) {
+export async function updateMessageAfterAction(messageId, job, uncertain, status, options = {}) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
 
-  let originalText = formatJobNotification(job, uncertain);
-  if (options.autoBooked && options.daysAhead != null) {
-    originalText = `🤖 <b>AUTO-BOOKING</b> (${options.daysAhead} days away, safe to cancel)\n\n${originalText}`;
+  const details = formatJobDetails(job);
+  const loginUrl = process.env.FRONTLINE_LOGIN_URL;
+  let text;
+
+  switch (status) {
+    case 'booked': {
+      const autoPrefix = options.autoBooked ? ' (Auto-Booked)' : '';
+      text = [
+        `✅ <b>JOB BOOKED${autoPrefix}!</b>`,
+        ``,
+        details,
+        ``,
+        `🎉 This job has been booked successfully.`,
+        options.daysAhead != null ? `📆 ${options.daysAhead} days away — safe to cancel within 48 hours.` : '',
+        ``,
+        `Need to cancel? <a href="${loginUrl}">Log in to Frontline</a>`,
+      ].filter(Boolean).join('\n');
+      break;
+    }
+
+    case 'taken':
+      text = [
+        `😔 <b>JOB ALREADY TAKEN</b>`,
+        ``,
+        details,
+        ``,
+        `Someone else booked this one before we could get it. No action needed.`,
+      ].join('\n');
+      break;
+
+    case 'error':
+      text = [
+        `⚠️ <b>BOOKING FAILED</b>`,
+        ``,
+        details,
+        ``,
+        `Something went wrong while trying to book this job.`,
+        `If it's still available, you can try manually:`,
+        `👉 <a href="${loginUrl}">Log in to Frontline</a>`,
+      ].join('\n');
+      break;
+
+    case 'ignored':
+      text = [
+        `❌ <b>IGNORED</b>`,
+        ``,
+        details,
+      ].join('\n');
+      break;
+
+    case 'expired':
+      text = [
+        `⏰ <b>EXPIRED</b> (no response)`,
+        ``,
+        details,
+        ``,
+        `If still available: <a href="${loginUrl}">Log in to Frontline</a>`,
+      ].join('\n');
+      break;
+
+    default: {
+      // Fallback for any unexpected status
+      const originalText = formatJobNotification(job, uncertain);
+      text = `${originalText}\n\n--- ${status} ---`;
+      break;
+    }
   }
-  const updatedText = `${originalText}\n\n--- ${statusLine} ---`;
 
   const url = `${TELEGRAM_API_URL}/editMessageText`;
   const payload = {
     chat_id: TELEGRAM_CHAT_ID,
     message_id: messageId,
-    text: updatedText,
+    text: text,
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     reply_markup: { inline_keyboard: [] }, // Remove keyboard

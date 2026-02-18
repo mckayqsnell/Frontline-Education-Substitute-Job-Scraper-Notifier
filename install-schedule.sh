@@ -21,8 +21,8 @@ set -e  # Exit on error
 
 PLIST_LABEL="com.subjobs.scraper"
 PLIST_FILE="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
-PROJECT_DIR="/Users/mckaysnell/personal_projects/sub_teacher_scaper"
-NODE_PATH="/Users/mckaysnell/.nvm/versions/node/v22.14.0/bin/node"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NODE_PATH="$(which node)"
 
 echo "📦 Installing launchd persistent daemon for substitute job scraper..."
 echo ""

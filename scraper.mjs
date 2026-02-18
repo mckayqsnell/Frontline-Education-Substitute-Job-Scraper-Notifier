@@ -762,7 +762,7 @@ async function processCallbacks(notifiedJobs) {
 
       // Edit message to remove keyboard
       if (entry.telegramMessageId && entry.jobData) {
-        await updateMessageAfterAction(entry.telegramMessageId, entry.jobData, entry.uncertain, '❌ IGNORED');
+        await updateMessageAfterAction(entry.telegramMessageId, entry.jobData, entry.uncertain, 'ignored');
       }
     }
   }
@@ -786,13 +786,13 @@ async function executePendingBookings(page, notifiedJobs) {
     logToFile(`Executing booking: ${jobData?.position} at ${jobData?.school} (Job #${jobData?.jobNumber})`);
 
     try {
-      const success = await bookJobOnPage(page, jobData);
+      const result = await bookJobOnPage(page, jobData);
 
-      if (success) {
+      if (result.success) {
         entry.status = 'booked';
         logToFile(`BOOKED: ${jobData?.position} at ${jobData?.school}`);
         if (entry.telegramMessageId && jobData) {
-          await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, '✅ BOOKED', msgOptions);
+          await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, 'booked', msgOptions);
         }
         if (scraperStats?.bookingActions) {
           scraperStats.bookingActions.booked++;
@@ -801,9 +801,9 @@ async function executePendingBookings(page, notifiedJobs) {
         }
       } else {
         entry.status = 'failed';
-        logToFile(`BOOKING FAILED: Job not found on page — ${jobData?.position} at ${jobData?.school}`);
+        logToFile(`BOOKING FAILED (${result.reason}): ${jobData?.position} at ${jobData?.school}`);
         if (entry.telegramMessageId && jobData) {
-          await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, '⚠️ BOOKING FAILED — Job no longer available', msgOptions);
+          await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, result.reason === 'taken' ? 'taken' : 'error', msgOptions);
         }
         if (scraperStats?.bookingActions) {
           scraperStats.bookingActions.failed++;
@@ -813,7 +813,7 @@ async function executePendingBookings(page, notifiedJobs) {
       entry.status = 'failed';
       logToFile(`Booking error: ${bookError.message}`);
       if (entry.telegramMessageId && jobData) {
-        await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, `⚠️ BOOKING ERROR: ${bookError.message}`, msgOptions);
+        await updateMessageAfterAction(entry.telegramMessageId, jobData, entry.uncertain, 'error', msgOptions);
       }
       if (scraperStats?.bookingActions) {
         scraperStats.bookingActions.failed++;
@@ -826,10 +826,12 @@ async function executePendingBookings(page, notifiedJobs) {
 
 /**
  * Book a job on the Frontline page by finding it and clicking Accept.
- * @returns {boolean} true if booking succeeded
+ * @returns {{ success: boolean, reason: 'booked'|'taken'|'error', message: string }}
  */
 async function bookJobOnPage(page, jobData) {
-  if (!jobData?.jobNumber) return false;
+  if (!jobData?.jobNumber) {
+    return { success: false, reason: 'error', message: 'No job number' };
+  }
 
   // Refresh to get current page state
   await page.reload({ waitUntil: 'commit', timeout: 15000 });
@@ -875,17 +877,17 @@ async function bookJobOnPage(page, jobData) {
       await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
 
       logToFile('Booking confirmed!');
-      return true;
+      return { success: true, reason: 'booked', message: 'Booking confirmed' };
 
     } catch (popupError) {
       logToFile(`Confirmation popup not found: ${popupError.message}`);
       await page.screenshot({ path: path.join(__dirname, 'debug', `booking-no-popup-${Date.now()}.png`) });
-      return false;
+      return { success: false, reason: 'error', message: 'Confirmation popup did not appear' };
     }
   }
 
-  logToFile(`Job #${jobData.jobNumber} not found on page`);
-  return false;
+  logToFile(`Job #${jobData.jobNumber} not found on page — likely taken by someone else`);
+  return { success: false, reason: 'taken', message: 'Job no longer available — someone else got it' };
 }
 
 /**
@@ -900,7 +902,7 @@ async function expireOldNotifications(notifiedJobs) {
       logToFile(`Expired notification: ${entry.jobData?.position} at ${entry.jobData?.school}`);
 
       if (entry.telegramMessageId && entry.jobData) {
-        await updateMessageAfterAction(entry.telegramMessageId, entry.jobData, entry.uncertain, '⏰ EXPIRED');
+        await updateMessageAfterAction(entry.telegramMessageId, entry.jobData, entry.uncertain, 'expired');
       }
 
       if (scraperStats?.bookingActions) {

@@ -192,6 +192,20 @@ export const REJECTED_SUBJECTS = [
 ];
 
 // ============================================================================
+// BLACKOUT DATES (do not consider any jobs on these dates)
+// ============================================================================
+
+/**
+ * Date ranges and single dates when no jobs should be accepted.
+ * Ranges are inclusive on both ends. Format: 'YYYY-MM-DD'.
+ */
+export const BLACKOUT_DATES = [
+  { start: '2026-03-18', end: '2026-04-08', label: 'Korea trip' },
+  { start: '2026-04-13', end: '2026-04-13', label: 'Birthday' },
+  { start: '2026-05-30', end: '2026-05-30', label: 'Day off' },
+];
+
+// ============================================================================
 // DURATION FILTERS
 // ============================================================================
 
@@ -335,9 +349,68 @@ export function isDurationAccepted(duration) {
 }
 
 /**
+ * Parse a job date string into a Date object (date only, no time).
+ * Handles formats like "Wed, 2/25/2026" or "2/25/2026".
+ * @param {string} dateStr - The date string from the job
+ * @returns {Date|null} Parsed date or null if unparseable
+ */
+function parseJobDate(dateStr) {
+  if (!dateStr || dateStr === 'N/A') return null;
+  // Remove day name prefix: "Wed, 2/25/2026" → "2/25/2026"
+  const cleaned = dateStr.replace(/^[A-Za-z]+,\s*/, '');
+  const d = new Date(cleaned);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Check if a date falls within any blackout period.
+ * @param {Date} date - The date to check
+ * @returns {{ blacked: boolean, label: string }} Whether date is blacked out and why
+ */
+function isDateBlackedOut(date) {
+  // Normalize to YYYY-MM-DD for clean comparison (avoids timezone issues)
+  const check = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+  for (const period of BLACKOUT_DATES) {
+    const start = new Date(period.start + 'T00:00:00').getTime();
+    const end = new Date(period.end + 'T00:00:00').getTime();
+    if (check >= start && check <= end) {
+      return { blacked: true, label: period.label };
+    }
+  }
+  return { blacked: false, label: '' };
+}
+
+/**
+ * Check if any of a job's dates fall within a blackout period.
+ * For multi-day jobs, ALL days are checked — if any day is blacked out, reject.
+ * @param {Object} job - The job object
+ * @returns {{ blacked: boolean, label: string }}
+ */
+export function isJobBlackedOut(job) {
+  // Check multi-day jobs: reject if ANY day is blacked out
+  if (job.isMultiDay && job.days?.length > 0) {
+    for (const day of job.days) {
+      const d = parseJobDate(day.date);
+      if (d) {
+        const result = isDateBlackedOut(d);
+        if (result.blacked) return result;
+      }
+    }
+    return { blacked: false, label: '' };
+  }
+
+  // Single-day job
+  const d = parseJobDate(job.date);
+  if (!d) return { blacked: false, label: '' };
+  return isDateBlackedOut(d);
+}
+
+/**
  * Main filtering function - checks if a job matches all criteria
  *
  * Matching rules:
+ *   - Blackout date = immediately rejected (Korea trip, birthdays, etc.)
  *   - Accepted school level + accepted subject + full day = CERTAIN match
  *   - Accepted school level + uncertain subject + full day = UNCERTAIN match
  *   - Blacklisted school + accepted subject + full day = UNCERTAIN match
@@ -348,6 +421,11 @@ export function isDurationAccepted(duration) {
  * @returns {Object} { match: boolean, reason: string, uncertain: boolean }
  */
 export function filterJob(job) {
+  // Always reject jobs on blackout dates (trips, days off, etc.)
+  const blackout = isJobBlackedOut(job);
+  if (blackout.blacked) {
+    return { match: false, reason: `Blackout date (${blackout.label}): ${job.date}`, uncertain: false };
+  }
   const blacklisted = isSchoolBlacklisted(job.school);
   const schoolLevelOk = isSchoolLevelAccepted(job.school);
   const fullDay = isDurationAccepted(job.duration);
