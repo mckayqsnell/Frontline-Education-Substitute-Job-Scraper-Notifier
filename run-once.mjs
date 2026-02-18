@@ -131,7 +131,8 @@ async function captureJobCardScreenshot(jobBody, job, index) {
 
 async function login(page) {
   log('Navigating to login page...');
-  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(process.env.FRONTLINE_LOGIN_URL, { timeout: 60000 });
+  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
   await humanDelay(1000, 3000);
 
   log('Entering username...');
@@ -184,13 +185,13 @@ async function login(page) {
 async function navigateToAvailableJobs(page) {
   log('Navigating to Available Jobs tab...');
 
-  await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 10000 });
+  await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
   await humanDelay(500, 1000);
 
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
   await humanDelay(500, 1000);
 
-  await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 10000 });
+  await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
   await humanDelay(1000, 2000);
 
   log('Available Jobs tab loaded');

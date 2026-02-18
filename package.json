@@ -7,9 +7,11 @@
   "scripts": {
     "test-notify": "node test-notify.mjs",
     "scrape": "node run-once.mjs",
+    "daemon": "node scraper.mjs",
     "setup": "pnpm install && npx playwright install chromium",
     "schedule": "bash install-schedule.sh",
-    "unschedule": "bash uninstall-schedule.sh"
+    "unschedule": "bash uninstall-schedule.sh",
+    "dashboard": "node dashboard/server.mjs"
   },
   "keywords": [
     "scraper",

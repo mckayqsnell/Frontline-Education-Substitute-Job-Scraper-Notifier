@@ -70,5 +70,21 @@ export const SELECTORS = {
       hideDetailsButton: 'a.hideDetailsButton',
       cancelButton: 'a.cancelButton',
     },
+
+    // Booking confirmation popup (jQuery UI dialog)
+    // Appears after clicking Accept button, titled "Notes"
+    // Contains teacher's sub plans/notes and two buttons:
+    //   "Do not accept" (cancel) and "Accept" (confirm booking)
+    bookingConfirmation: {
+      dialog: '.ui-dialog',
+      content: '.ui-dialog-content',
+      buttonPane: '.ui-dialog-buttonpane',
+      // "Accept" is the last button in the button set
+      confirmButton: '.ui-dialog-buttonset button:last-child',
+      // "Do not accept" is the first button
+      cancelButton: '.ui-dialog-buttonset button:first-child',
+      // Close X button in title bar
+      closeButton: '.ui-dialog-titlebar-close',
+    },
   }
 };

@@ -5,10 +5,14 @@
 #######################################################
 #
 # This script creates and loads a launchd agent that runs
-# the scraper every 5 minutes (24/7).
+# the scraper as a persistent daemon (KeepAlive).
 #
-# The scraper itself checks operating hours (5 AM - 11 PM MT, every day)
-# and exits immediately if outside those hours.
+# The scraper runs continuously, checking for jobs every
+# 30 seconds. It handles operating hours internally
+# (sleeps during off-hours instead of exiting).
+#
+# If the scraper crashes (non-zero exit), launchd restarts
+# it automatically. Clean shutdown (exit 0) does NOT restart.
 #
 # Usage: pnpm run schedule
 #
@@ -20,7 +24,7 @@ PLIST_FILE="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 PROJECT_DIR="/Users/mckaysnell/personal_projects/sub_teacher_scaper"
 NODE_PATH="/Users/mckaysnell/.nvm/versions/node/v22.14.0/bin/node"
 
-echo "📦 Installing launchd schedule for substitute job scraper..."
+echo "📦 Installing launchd persistent daemon for substitute job scraper..."
 echo ""
 
 # Check if Node.js exists at the specified path
@@ -66,9 +70,6 @@ cat > "$PLIST_FILE" << EOF
         <string>${PROJECT_DIR}/scraper.mjs</string>
     </array>
 
-    <key>StartInterval</key>
-    <integer>300</integer>
-
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>
 
@@ -85,10 +86,16 @@ cat > "$PLIST_FILE" << EOF
     </dict>
 
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>KeepAlive</key>
-    <false/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
 </dict>
 </plist>
 EOF
@@ -98,7 +105,11 @@ echo "🚀 Loading launchd agent..."
 launchctl load "$PLIST_FILE"
 
 echo ""
-echo "✅ SUCCESS! Substitute job scraper is now scheduled to run every 5 minutes."
+echo "✅ SUCCESS! Substitute job scraper is now running as a persistent daemon."
+echo ""
+echo "🔄 The scraper checks for new jobs every 30 seconds."
+echo "   If it crashes, launchd will restart it automatically."
+echo "   Clean shutdown (Ctrl+C / SIGTERM) will NOT restart."
 echo ""
 echo "📋 Useful commands:"
 echo "  • Check if running:     launchctl list | grep subjobs"
@@ -107,10 +118,7 @@ echo "  • View launchd output:  tail -f $PROJECT_DIR/logs/launchd-stdout.log"
 echo "  • View launchd errors:  tail -f $PROJECT_DIR/logs/launchd-stderr.log"
 echo "  • Uninstall schedule:   pnpm run unschedule"
 echo ""
-echo "⏰ Active hours (scraper exits immediately if outside these hours):"
+echo "⏰ Active hours (scraper sleeps during off-hours, does not exit):"
 echo "   - Every day (Monday - Sunday)"
-echo "   - 5:00 AM - 11:00 PM Mountain Time"
-echo ""
-echo "💡 Note: launchd runs the scraper every 5 minutes (24/7), but the scraper"
-echo "   checks the time and exits early if outside active hours."
+echo "   - 5:00 AM - Midnight Mountain Time"
 echo ""

@@ -7,6 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const LOG_FILE = join(__dirname, 'logs', 'scraper.log');
+const HEARTBEAT_FILE = join(__dirname, 'data', 'heartbeat.json');
+const STATS_FILE = join(__dirname, 'data', 'scraper-stats.json');
+const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Generate a random delay between min and max milliseconds (for human-like behavior)
@@ -115,5 +118,66 @@ export async function cleanupOldDebugFiles(maxAgeDays = 3) {
     }
   } catch (error) {
     await logToFile(`Failed to cleanup old debug files: ${error.message}`);
+  }
+}
+
+/**
+ * Write heartbeat data for external health monitoring.
+ * Dashboard can check if timestamp is stale (>2 min = daemon stuck).
+ */
+export async function writeHeartbeat(data = {}) {
+  const heartbeat = {
+    timestamp: Date.now(),
+    iso: new Date().toISOString(),
+    pid: process.pid,
+    ...data,
+  };
+
+  try {
+    await fs.writeFile(HEARTBEAT_FILE, JSON.stringify(heartbeat, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to write heartbeat:', error.message);
+  }
+}
+
+/**
+ * Rotate log file if it exceeds max size.
+ * Renames current log to .old and starts fresh.
+ */
+export async function rotateLogIfNeeded() {
+  try {
+    const stats = await fs.stat(LOG_FILE);
+    if (stats.size > MAX_LOG_SIZE_BYTES) {
+      const oldLog = LOG_FILE.replace('.log', '.old.log');
+      await fs.unlink(oldLog).catch(() => {});
+      await fs.rename(LOG_FILE, oldLog);
+      await logToFile('Log file rotated (previous log saved as scraper.old.log)');
+    }
+  } catch (error) {
+    // File might not exist yet, that's fine
+  }
+}
+
+/**
+ * Write scraper run stats for the monitoring dashboard.
+ * Called after each scrape cycle.
+ */
+export async function writeScraperStats(stats) {
+  try {
+    await fs.writeFile(STATS_FILE, JSON.stringify(stats, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to write scraper stats:', error.message);
+  }
+}
+
+/**
+ * Load existing scraper stats from disk (for persistence across restarts).
+ */
+export async function loadScraperStats() {
+  try {
+    const data = await fs.readFile(STATS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    return null;
   }
 }

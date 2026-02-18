@@ -45,14 +45,42 @@ export const REJECTED_SCHOOL_LEVELS = [
 
 /**
  * Specific schools to reject (blacklist)
- * If school name matches any of these, immediately reject
+ * Full day + accepted subject at blacklisted schools = uncertain (not rejected)
+ * Half days at blacklisted schools are still fully rejected.
  */
-export const REJECTED_SCHOOLS = [
+export const BLACKLISTED_SCHOOLS = [
   'westlake high school',
   'westlake hs',
   'saratoga springs',
   'vista heights middle school',
   'vista heights',
+];
+
+/**
+ * Schools considered "nearby" to Orem, UT.
+ * Half day + accepted subject at these schools = uncertain match.
+ * Half days at schools NOT on this list are fully rejected.
+ *
+ * Cities included: Orem, Lindon, Pleasant Grove, Vineyard,
+ *   American Fork, Cedar Hills, Highland, Alpine, Lehi
+ */
+export const NEARBY_SCHOOLS = [
+  'orem',
+  'lindon',
+  'pleasant grove',
+  'vineyard',
+  'american fork',
+  'cedar hills',
+  'highland',
+  'alpine',
+  'lehi',
+  // Specific school names that may not contain city name
+  'mountain view',     // Mountain View HS — Orem
+  'timpanogos',        // Timpanogos HS — Orem
+  'canyon view',       // Canyon View JH — Orem
+  'lone peak',         // Lone Peak HS — Highland
+  'skyridge',          // Skyridge HS — Lehi
+  'timberline',        // Timberline MS — Alpine
 ];
 
 // ============================================================================
@@ -159,7 +187,7 @@ export const REJECTED_SUBJECTS = [
   // "cs" → matched inside "physics", "economics"
   // "pe" → matched inside "performing", "special"
   // "ell" → matched inside "spelling"
-  // "asl", "esl" → too short, could match substrings
+  // "asl", "esl" → removed (too short, could match substrings)
   // The full forms above cover these cases adequately.
 ];
 
@@ -223,13 +251,30 @@ export function isSchoolLevelAccepted(schoolName) {
 /**
  * Check if a school is on the blacklist
  * @param {string} schoolName - The name of the school
- * @returns {boolean} true if school is blacklisted (should be rejected)
+ * @returns {boolean} true if school is blacklisted
  */
 export function isSchoolBlacklisted(schoolName) {
   const lowerSchool = schoolName.toLowerCase();
 
-  for (const rejected of REJECTED_SCHOOLS) {
+  for (const rejected of BLACKLISTED_SCHOOLS) {
     if (lowerSchool.includes(rejected)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a school is near Orem, UT (for half-day uncertain matching)
+ * @param {string} schoolName - The name of the school
+ * @returns {boolean} true if school is nearby
+ */
+export function isSchoolNearby(schoolName) {
+  const lowerSchool = schoolName.toLowerCase();
+
+  for (const nearby of NEARBY_SCHOOLS) {
+    if (lowerSchool.includes(nearby)) {
       return true;
     }
   }
@@ -291,60 +336,79 @@ export function isDurationAccepted(duration) {
 
 /**
  * Main filtering function - checks if a job matches all criteria
+ *
+ * Matching rules:
+ *   - Accepted school level + accepted subject + full day = CERTAIN match
+ *   - Accepted school level + uncertain subject + full day = UNCERTAIN match
+ *   - Blacklisted school + accepted subject + full day = UNCERTAIN match
+ *   - Nearby school + accepted subject + half day = UNCERTAIN match
+ *   - Everything else = rejected
+ *
  * @param {Object} job - The job object with all fields
  * @returns {Object} { match: boolean, reason: string, uncertain: boolean }
  */
 export function filterJob(job) {
-  // 1. Check if school is blacklisted (highest priority check)
-  if (isSchoolBlacklisted(job.school)) {
-    return {
-      match: false,
-      reason: `School is blacklisted: ${job.school}`,
-      uncertain: false,
-    };
-  }
-
-  // 2. Check school level
-  if (!isSchoolLevelAccepted(job.school)) {
-    return {
-      match: false,
-      reason: `School level not accepted: ${job.school}`,
-      uncertain: false,
-    };
-  }
-
-  // 3. Check duration (Full Day only)
-  if (!isDurationAccepted(job.duration)) {
-    return {
-      match: false,
-      reason: `Duration not accepted (need Full Day): ${job.duration}`,
-      uncertain: false,
-    };
-  }
-
-  // 4. Check subject
+  const blacklisted = isSchoolBlacklisted(job.school);
+  const schoolLevelOk = isSchoolLevelAccepted(job.school);
+  const fullDay = isDurationAccepted(job.duration);
   const subjectResult = isSubjectAccepted(job.position);
+  const nearby = isSchoolNearby(job.school);
 
+  // Always reject if subject is on the rejected list
   if (subjectResult === 'REJECT') {
-    return {
-      match: false,
-      reason: `Subject rejected: ${job.position}`,
-      uncertain: false,
-    };
+    return { match: false, reason: `Subject rejected: ${job.position}`, uncertain: false };
   }
 
-  if (subjectResult === 'ACCEPT') {
+  // Always reject schools that aren't the right level (unless blacklisted — they have their own path)
+  if (!schoolLevelOk && !blacklisted) {
+    return { match: false, reason: `School level not accepted: ${job.school}`, uncertain: false };
+  }
+
+  // --- Blacklisted schools ---
+  if (blacklisted) {
+    // Blacklisted + full day + accepted/uncertain subject = uncertain match
+    if (fullDay && (subjectResult === 'ACCEPT' || subjectResult === 'UNCERTAIN')) {
+      return {
+        match: true,
+        reason: `Blacklisted school (uncertain): ${job.school} - ${job.position}`,
+        uncertain: true,
+      };
+    }
+    // Blacklisted + half day = rejected
+    return { match: false, reason: `Blacklisted school: ${job.school}`, uncertain: false };
+  }
+
+  // --- Full day at accepted school level ---
+  if (fullDay) {
+    if (subjectResult === 'ACCEPT') {
+      return {
+        match: true,
+        reason: `All criteria met: ${job.school} - ${job.position} - ${job.duration}`,
+        uncertain: false,
+      };
+    }
+    // Uncertain subject
     return {
       match: true,
-      reason: `All criteria met: ${job.school} - ${job.position} - ${job.duration}`,
-      uncertain: false,
+      reason: `Uncertain subject match: ${job.position} at ${job.school}`,
+      uncertain: true,
     };
   }
 
-  // If subject is uncertain, accept but mark as uncertain
+  // --- Half day at accepted school level ---
+  // Half day + nearby school + accepted subject = uncertain
+  if (nearby && subjectResult === 'ACCEPT') {
+    return {
+      match: true,
+      reason: `Half day nearby (uncertain): ${job.school} - ${job.position} - ${job.duration}`,
+      uncertain: true,
+    };
+  }
+
+  // Half day + far school OR half day + uncertain subject = rejected
   return {
-    match: true,
-    reason: `Uncertain subject match: ${job.position} at ${job.school}`,
-    uncertain: true,
+    match: false,
+    reason: `Half day ${nearby ? 'uncertain subject' : 'not nearby'}: ${job.school} - ${job.duration}`,
+    uncertain: false,
   };
 }

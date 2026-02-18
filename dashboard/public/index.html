@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sub Job Scraper Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <header>
+    <h1>Sub Job Scraper</h1>
+    <div id="status-badge" class="badge badge-unknown">Unknown</div>
+  </header>
+
+  <main>
+    <!-- Live Status -->
+    <section class="card">
+      <h2>Live Status</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-label">Last Check</span>
+          <span id="last-check" class="stat-value">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Check Duration</span>
+          <span id="check-duration" class="stat-value">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Up Since</span>
+          <span id="up-since" class="stat-value">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">PID</span>
+          <span id="pid" class="stat-value">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Today's Numbers -->
+    <section class="card">
+      <h2>Today's Numbers</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-label">Total Checks</span>
+          <span id="total-checks" class="stat-value big accent">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Jobs Seen</span>
+          <span id="jobs-seen" class="stat-value big">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Jobs Matched</span>
+          <span id="jobs-matched" class="stat-value big highlight">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Jobs Notified</span>
+          <span id="jobs-notified" class="stat-value big highlight">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Errors</span>
+          <span id="total-errors" class="stat-value big error">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recent Checks Chart — moved up for visibility -->
+    <section class="card">
+      <h2>Recent Checks (Last 50)</h2>
+      <canvas id="recent-chart"></canvas>
+    </section>
+
+    <!-- Booking Actions — Matching Jobs -->
+    <section class="card">
+      <h2>Matching Job Actions (Today)</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-label">Auto-Booked</span>
+          <span id="action-auto-booked" class="stat-value big auto-booked">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Booked</span>
+          <span id="action-booked" class="stat-value big booked">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Ignored</span>
+          <span id="action-ignored" class="stat-value big ignored">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Expired</span>
+          <span id="action-expired" class="stat-value big expired">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Failed</span>
+          <span id="action-failed" class="stat-value big error">0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Booking Actions — Uncertain Jobs -->
+    <section class="card">
+      <h2>Uncertain Job Actions (Today)</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-label">Booked</span>
+          <span id="action-uncertain-booked" class="stat-value big booked">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Ignored</span>
+          <span id="action-uncertain-ignored" class="stat-value big ignored">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Expired</span>
+          <span id="action-uncertain-expired" class="stat-value big expired">0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14-Day History -->
+    <section class="card">
+      <h2>14-Day History</h2>
+      <canvas id="history-chart"></canvas>
+    </section>
+
+    <!-- Recent Errors -->
+    <section class="card">
+      <h2>Recent Errors</h2>
+      <div id="errors-list" class="errors-list">
+        <p class="muted">No errors</p>
+      </div>
+    </section>
+
+    <!-- Logs -->
+    <section class="card">
+      <h2>Recent Logs</h2>
+      <pre id="logs-output" class="logs-output">Loading...</pre>
+    </section>
+  </main>
+
+  <div class="refresh-indicator">
+    <span class="refresh-dot"></span>
+    <span id="refresh-timer">Auto-refresh 30s</span>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
