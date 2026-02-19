@@ -591,7 +591,24 @@ async function refreshPage(page) {
   try {
     await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 5000 });
   } catch {
-    return true; // Tab not found — likely session issue
+    // Tab not found — check if we're on the "Searching for Jobs" layout
+    // (yellow banner with "Click Here to return to the Full View of data")
+    try {
+      const fullViewLink = page.locator('#RapidLogin a[href*="ReturnToSubCalendar"]');
+      const isVisible = await fullViewLink.isVisible({ timeout: 2000 });
+      if (isVisible) {
+        logToFile('Detected "Searching for Jobs" layout after refresh — clicking Full View link...');
+        await fullViewLink.click();
+        await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
+        await page.locator(SELECTORS.navigation.availableJobsTab).click();
+        await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
+        logToFile('Restored Full View layout');
+        return false; // Session is fine, layout is fixed
+      }
+    } catch {
+      // Full View link not found either — fall through to session expiry
+    }
+    return true; // Tab not found and no Full View banner — likely session issue
   }
 
   return false;

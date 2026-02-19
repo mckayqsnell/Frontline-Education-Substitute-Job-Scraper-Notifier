@@ -162,7 +162,30 @@ async function login(page) {
 async function navigateToAvailableJobs(page) {
   log('Navigating to Available Jobs tab...');
 
-  await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
+  try {
+    await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 5000 });
+  } catch {
+    // Tab not found — check for "Searching for Jobs" layout (yellow banner)
+    log('Available Jobs tab not found. Checking for "Full View" link...');
+    try {
+      const fullViewLink = page.locator('#RapidLogin a[href*="ReturnToSubCalendar"]');
+      const isVisible = await fullViewLink.isVisible({ timeout: 3000 });
+      if (isVisible) {
+        log('Clicking "Full View" link to switch layouts...');
+        await fullViewLink.click();
+        await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
+      } else {
+        throw new Error('Full View link not visible');
+      }
+    } catch (fallbackError) {
+      // Last resort: wait longer for the tab
+      log('Trying sidebar Available Jobs link...');
+      const sidebarLink = page.locator('a:has-text("Available Jobs")').first();
+      await sidebarLink.click();
+      await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
+    }
+  }
+
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
 
