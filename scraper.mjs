@@ -34,7 +34,6 @@ import {
   updateMessageAfterAction,
 } from './notify.mjs';
 import {
-  humanDelay,
   logToFile,
   isOperatingHours,
   createJobHash,
@@ -460,40 +459,21 @@ async function launchBrowser() {
 }
 
 /**
- * Login to Frontline Education with human-like behavior.
+ * Login to Frontline Education.
+ * Uses fill() for instant credential entry — no artificial typing delays.
  */
 async function login(page) {
   logToFile('Navigating to login page...');
   await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await humanDelay(1000, 3000);
 
-  logToFile('Entering username...');
-  await page.locator(SELECTORS.login.usernameField).click();
-  await humanDelay(200, 400);
-  await page.locator(SELECTORS.login.usernameField).fill('');
-  await page.locator(SELECTORS.login.usernameField).type(
-    process.env.FRONTLINE_USERNAME,
-    { delay: Math.floor(Math.random() * 80) + 80 }
-  );
-
-  await humanDelay(300, 800);
-
-  logToFile('Entering password...');
-  await page.locator(SELECTORS.login.passwordField).click();
-  await humanDelay(200, 400);
-  await page.locator(SELECTORS.login.passwordField).fill('');
-  await page.locator(SELECTORS.login.passwordField).type(
-    process.env.FRONTLINE_PASSWORD,
-    { delay: Math.floor(Math.random() * 80) + 80 }
-  );
-
-  await humanDelay(200, 600);
+  logToFile('Entering credentials...');
+  await page.locator(SELECTORS.login.usernameField).fill(process.env.FRONTLINE_USERNAME);
+  await page.locator(SELECTORS.login.passwordField).fill(process.env.FRONTLINE_PASSWORD);
 
   logToFile('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
   await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
-  await humanDelay(1000, 3000);
 
   // Handle "Important Notifications" popup if it appears
   try {
@@ -502,22 +482,18 @@ async function login(page) {
 
     if (isPopupVisible) {
       logToFile('Dismissing notification popup...');
-      await humanDelay(500, 1000);
       await page.locator(SELECTORS.popup.dismissButton).click();
-      await humanDelay(500, 1000);
     }
   } catch (error) {
-    logToFile('No popup to dismiss');
+    // No popup — continue
   }
 
-  // Wait for all post-login redirects to fully settle
-  // (Frontline redirects through /connect/authorize → /Login/Signin → /Substitute/Home)
+  // Wait for post-login redirects to settle
   try {
     await page.waitForLoadState('load', { timeout: 30000 });
   } catch {
     // Timeout on full load is OK — domcontentloaded is sufficient
   }
-  await humanDelay(1000, 2000);
 
   logToFile('Login complete');
 }
@@ -545,7 +521,6 @@ async function navigateToAvailableJobs(page) {
       if (isVisible) {
         logToFile('Clicking "Full View" link to switch layouts...');
         await fullViewLink.click();
-        await humanDelay(1000, 2000);
         await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
       } else {
         throw new Error('Full View link not visible');
@@ -555,17 +530,12 @@ async function navigateToAvailableJobs(page) {
       logToFile('Trying sidebar Available Jobs link...');
       const sidebarLink = page.locator('a:has-text("Available Jobs")').first();
       await sidebarLink.click();
-      await humanDelay(1000, 2000);
       await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
     }
   }
 
-  await humanDelay(500, 1000);
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
-  await humanDelay(500, 1000);
-
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
-  await humanDelay(1000, 2000);
 
   logToFile('Available Jobs tab loaded');
 }
@@ -606,8 +576,6 @@ async function refreshPage(page) {
   } catch {
     // Panel not loaded — could be session expiry or slow page; check URL
   }
-
-  await humanDelay(300, 600);
 
   const newUrl = page.url();
 
@@ -836,7 +804,6 @@ async function bookJobOnPage(page, jobData) {
   // Refresh to get current page state
   await page.reload({ waitUntil: 'commit', timeout: 15000 });
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 15000 });
-  await humanDelay(500, 1000);
 
   // Find job by confirmation number
   const jobBodies = await page.locator(SELECTORS.jobs.jobBodies).all();
@@ -853,13 +820,12 @@ async function bookJobOnPage(page, jobData) {
     if (isMultiDay) {
       logToFile('Multi-day job — expanding details...');
       await jobBody.locator(SELECTORS.jobs.actions.seeDetailsButton).click();
-      await humanDelay(500, 1000);
+      await page.waitForTimeout(500); // Brief wait for expansion animation
     }
 
     // Click Accept button
     logToFile('Clicking Accept button...');
     await jobBody.locator(SELECTORS.jobs.actions.acceptButton).click();
-    await humanDelay(1000, 2000);
 
     // Wait for confirmation popup (jQuery UI dialog with "Notes" title)
     try {
@@ -871,7 +837,9 @@ async function bookJobOnPage(page, jobData) {
 
       // Click the "Accept" button (last button in button set)
       await page.locator(SELECTORS.jobs.bookingConfirmation.confirmButton).click();
-      await humanDelay(1000, 2000);
+
+      // Brief wait for Frontline to process the booking
+      await page.waitForTimeout(1000);
 
       // Screenshot after confirmation
       await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
@@ -952,7 +920,6 @@ async function performScrapeFilterNotify(page) {
     if (hasBookingAttempts) {
       try {
         await page.reload({ waitUntil: 'commit', timeout: 15000 });
-        await humanDelay(500, 1000);
       } catch (e) {
         logToFile(`Page reload after booking failed: ${e.message}`);
       }
@@ -1052,7 +1019,7 @@ async function performScrapeFilterNotify(page) {
         if (filterResult.uncertain) uncertainNotified++;
 
         if (newJobsNotified > 1) {
-          await humanDelay(1000, 2000); // Rate limiting
+          await new Promise(r => setTimeout(r, 500)); // Telegram rate limit buffer
         }
       } catch (error) {
         logToFile(`Failed to send notification: ${error.message}`);

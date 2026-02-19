@@ -22,7 +22,6 @@ import { SELECTORS } from './selectors.mjs';
 import { filterJob } from './filters.mjs';
 import { sendJobNotification, sendErrorAlert, sendSummaryNotification } from './notify.mjs';
 import {
-  humanDelay,
   createJobHash,
   ensureDirectories,
   cleanupOldDebugFiles,
@@ -133,35 +132,15 @@ async function login(page) {
   log('Navigating to login page...');
   await page.goto(process.env.FRONTLINE_LOGIN_URL, { timeout: 60000 });
   await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
-  await humanDelay(1000, 3000);
 
-  log('Entering username...');
-  await page.locator(SELECTORS.login.usernameField).click();
-  await humanDelay(200, 400);
-  await page.locator(SELECTORS.login.usernameField).fill('');
-  await page.locator(SELECTORS.login.usernameField).type(
-    process.env.FRONTLINE_USERNAME,
-    { delay: Math.floor(Math.random() * 80) + 80 }
-  );
-
-  await humanDelay(300, 800);
-
-  log('Entering password...');
-  await page.locator(SELECTORS.login.passwordField).click();
-  await humanDelay(200, 400);
-  await page.locator(SELECTORS.login.passwordField).fill('');
-  await page.locator(SELECTORS.login.passwordField).type(
-    process.env.FRONTLINE_PASSWORD,
-    { delay: Math.floor(Math.random() * 80) + 80 }
-  );
-
-  await humanDelay(200, 600);
+  log('Entering credentials...');
+  await page.locator(SELECTORS.login.usernameField).fill(process.env.FRONTLINE_USERNAME);
+  await page.locator(SELECTORS.login.passwordField).fill(process.env.FRONTLINE_PASSWORD);
 
   log('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
   await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
-  await humanDelay(1000, 3000);
 
   try {
     const popup = page.locator(SELECTORS.popup.dialog);
@@ -169,12 +148,10 @@ async function login(page) {
 
     if (isPopupVisible) {
       log('Dismissing notification popup...');
-      await humanDelay(500, 1000);
       await page.locator(SELECTORS.popup.dismissButton).click();
-      await humanDelay(500, 1000);
     }
   } catch (error) {
-    log('No popup to dismiss');
+    // No popup — continue
   }
 
   const timestamp = Date.now();
@@ -186,13 +163,8 @@ async function navigateToAvailableJobs(page) {
   log('Navigating to Available Jobs tab...');
 
   await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
-  await humanDelay(500, 1000);
-
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
-  await humanDelay(500, 1000);
-
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
-  await humanDelay(1000, 2000);
 
   log('Available Jobs tab loaded');
 }
@@ -355,7 +327,7 @@ async function main() {
           newJobsNotified++;
 
           if (newJobsNotified < matchedJobs.length) {
-            await humanDelay(1000, 2000);
+            await new Promise(r => setTimeout(r, 500)); // Telegram rate limit buffer
           }
         } catch (error) {
           log(`Failed to send notification: ${error.message}`);
