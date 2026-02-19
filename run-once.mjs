@@ -169,19 +169,17 @@ async function navigateToAvailableJobs(page) {
     log('Available Jobs tab not found. Checking for "Full View" link...');
     try {
       const fullViewLink = page.locator('#RapidLogin a[href*="ReturnToSubCalendar"]');
-      const isVisible = await fullViewLink.isVisible({ timeout: 3000 });
-      if (isVisible) {
-        log('Clicking "Full View" link to switch layouts...');
-        await fullViewLink.click();
-        await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
-      } else {
-        throw new Error('Full View link not visible');
-      }
+      await fullViewLink.waitFor({ state: 'visible', timeout: 5000 });
+      log('Clicking "Full View" link to switch layouts...');
+      await fullViewLink.click();
+      await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
     } catch (fallbackError) {
-      // Last resort: wait longer for the tab
-      log('Trying sidebar Available Jobs link...');
-      const sidebarLink = page.locator('a:has-text("Available Jobs")').first();
-      await sidebarLink.click();
+      // Last resort: navigate directly to the Full View URL
+      log('Navigating directly to Full View URL...');
+      const baseUrl = new URL(page.url()).origin;
+      await page.goto(`${baseUrl}/Substitute/Home/ReturnToSubCalendar`, {
+        waitUntil: 'domcontentloaded', timeout: 30000
+      });
       await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
     }
   }
@@ -195,16 +193,17 @@ async function navigateToAvailableJobs(page) {
 async function scrapeJobs(page) {
   log('Scraping jobs...');
 
+  // Wait for job content to load (jobs may arrive via AJAX after page load)
   try {
-    const noDataRow = page.locator(SELECTORS.jobs.noDataRow);
-    const noDataVisible = await noDataRow.isVisible({ timeout: 3000 });
-
+    await page.locator(SELECTORS.jobs.jobBodies).first().waitFor({ state: 'visible', timeout: 3000 });
+  } catch {
+    // No jobs found within 3s — check if "no data" message is showing
+    const noDataVisible = await page.locator(SELECTORS.jobs.noDataRow).isVisible();
     if (noDataVisible) {
       log('No available jobs at this time');
       return [];
     }
-  } catch (error) {
-    // No "no data" row found - proceed with scraping
+    return [];
   }
 
   const jobBodies = await page.locator(SELECTORS.jobs.jobBodies).all();

@@ -516,20 +516,18 @@ async function navigateToAvailableJobs(page) {
     // Look for the "Full View" link in the yellow banner
     logToFile('Available Jobs tab not found. Checking for "Full View" link...');
     try {
-      const fullViewLink = page.locator('text=Click Here').first();
-      const isVisible = await fullViewLink.isVisible({ timeout: 3000 });
-      if (isVisible) {
-        logToFile('Clicking "Full View" link to switch layouts...');
-        await fullViewLink.click();
-        await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
-      } else {
-        throw new Error('Full View link not visible');
-      }
+      const fullViewLink = page.locator('#RapidLogin a[href*="ReturnToSubCalendar"]');
+      await fullViewLink.waitFor({ state: 'visible', timeout: 5000 });
+      logToFile('Clicking "Full View" link to switch layouts...');
+      await fullViewLink.click();
+      await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
     } catch (fallbackError) {
-      // Last resort: navigate to home page via sidebar
-      logToFile('Trying sidebar Available Jobs link...');
-      const sidebarLink = page.locator('a:has-text("Available Jobs")').first();
-      await sidebarLink.click();
+      // Last resort: navigate directly to the Full View URL
+      logToFile('Navigating directly to Full View URL...');
+      const baseUrl = new URL(page.url()).origin;
+      await page.goto(`${baseUrl}/Substitute/Home/ReturnToSubCalendar`, {
+        waitUntil: 'domcontentloaded', timeout: 30000
+      });
       await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
     }
   }
@@ -587,31 +585,22 @@ async function refreshPage(page) {
     return true; // Session expired
   }
 
-  // Sanity check: Available Jobs tab should be present
-  try {
-    await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 5000 });
-  } catch {
-    // Tab not found — check if we're on the "Searching for Jobs" layout
-    // (yellow banner with "Click Here to return to the Full View of data")
-    try {
-      const fullViewLink = page.locator('#RapidLogin a[href*="ReturnToSubCalendar"]');
-      const isVisible = await fullViewLink.isVisible({ timeout: 2000 });
-      if (isVisible) {
-        logToFile('Detected "Searching for Jobs" layout after refresh — clicking Full View link...');
-        await fullViewLink.click();
-        await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 30000 });
-        await page.locator(SELECTORS.navigation.availableJobsTab).click();
-        await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
-        logToFile('Restored Full View layout');
-        return false; // Session is fine, layout is fixed
-      }
-    } catch {
-      // Full View link not found either — fall through to session expiry
-    }
-    return true; // Tab not found and no Full View banner — likely session issue
+  // Check that we can scrape — #availableJobs panel must be present.
+  // This works in both "Full View" (tab-based) and "Searching for Jobs" layouts.
+  // In the "Searching for Jobs" layout (yellow banner), the #availableJobsTab doesn't
+  // exist but #availableJobs panel IS present with job data — no need to click Full View.
+  const panelVisible = await page.locator(SELECTORS.navigation.availableJobsPanel).isVisible();
+  if (panelVisible) {
+    return false; // Session OK — can scrape from current layout
   }
 
-  return false;
+  // Panel not visible and not login redirect — wait a bit more (slow load)
+  try {
+    await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 10000 });
+    return false;
+  } catch {
+    return true; // Can't find panel — session issue
+  }
 }
 
 // ============================================================================
@@ -623,16 +612,16 @@ async function refreshPage(page) {
  * @returns {Array} Array of { job, jobBody, index } objects
  */
 async function scrapeJobs(page) {
-  // Check if there are no jobs available
+  // Wait for job content to load (jobs may arrive via AJAX after page.reload with 'commit')
+  // Check for jobs first (positive signal), then fall back to noData check
   try {
-    const noDataRow = page.locator(SELECTORS.jobs.noDataRow);
-    const noDataVisible = await noDataRow.isVisible({ timeout: 1000 });
-
-    if (noDataVisible) {
-      return [];
-    }
-  } catch (error) {
-    // No "no data" row found — proceed with scraping
+    await page.locator(SELECTORS.jobs.jobBodies).first().waitFor({ state: 'visible', timeout: 3000 });
+  } catch {
+    // No tbody.job found within 3s — check if "no data" message is showing
+    const noDataVisible = await page.locator(SELECTORS.jobs.noDataRow).isVisible();
+    if (noDataVisible) return [];
+    // Neither jobs nor noData visible — genuinely empty
+    return [];
   }
 
   const jobBodies = await page.locator(SELECTORS.jobs.jobBodies).all();
