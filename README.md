@@ -196,7 +196,3 @@ sub_teacher_scaper/
 - **[Chart.js](https://www.chartjs.org/)** — dashboard charts
 - **Node.js** built-in `http` module — dashboard server (zero dependencies)
 - **macOS launchd** — process management (KeepAlive daemon)
-
-## License
-
-MIT
