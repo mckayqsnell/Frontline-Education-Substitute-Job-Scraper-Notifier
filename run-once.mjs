@@ -128,10 +128,24 @@ async function captureJobCardScreenshot(jobBody, job, index) {
   }
 }
 
+async function dismissOverlays(page) {
+  const removed = await page.evaluate(() => {
+    const dialogs = document.querySelectorAll('.ui-dialog');
+    const overlays = document.querySelectorAll('.ui-widget-overlay');
+    let count = 0;
+    dialogs.forEach(d => { d.remove(); count++; });
+    overlays.forEach(o => { o.remove(); count++; });
+    return count;
+  });
+  if (removed > 0) {
+    log(`Dismissed ${removed} overlay(s)`);
+  }
+}
+
 async function login(page) {
   log('Navigating to login page...');
-  await page.goto(process.env.FRONTLINE_LOGIN_URL, { timeout: 60000 });
-  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
+  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'commit', timeout: 30000 });
+  await page.locator(SELECTORS.login.usernameField).waitFor({ state: 'visible', timeout: 30000 });
 
   log('Entering credentials...');
   await page.locator(SELECTORS.login.usernameField).fill(process.env.FRONTLINE_USERNAME);
@@ -140,19 +154,19 @@ async function login(page) {
   log('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
+  } catch {
+    // Timeout OK
+  }
 
   try {
-    const popup = page.locator(SELECTORS.popup.dialog);
-    const isPopupVisible = await popup.isVisible({ timeout: 3000 });
-
-    if (isPopupVisible) {
-      log('Dismissing notification popup...');
-      await page.locator(SELECTORS.popup.dismissButton).click();
-    }
-  } catch (error) {
-    // No popup — continue
+    await page.waitForLoadState('load', { timeout: 30000 });
+  } catch {
+    // Timeout on full load is OK
   }
+
+  await dismissOverlays(page);
 
   const timestamp = Date.now();
   await page.screenshot({ path: path.join(__dirname, 'debug', `01-after-login-${timestamp}.png`) });
@@ -161,6 +175,9 @@ async function login(page) {
 
 async function navigateToAvailableJobs(page) {
   log('Navigating to Available Jobs tab...');
+
+  // Dismiss overlays immediately (promotional dialogs block visibility and clicks)
+  await dismissOverlays(page);
 
   try {
     await page.waitForSelector(SELECTORS.navigation.availableJobsTab, { timeout: 5000 });
@@ -184,6 +201,7 @@ async function navigateToAvailableJobs(page) {
     }
   }
 
+  await dismissOverlays(page);
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
 

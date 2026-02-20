@@ -29,7 +29,7 @@ export const SELECTORS = {
     // Job list structure in the Available Jobs tab
     jobListTable: '#availableJobs table.jobList',
     jobBodies: '#availableJobs tbody.job', // Each job is a tbody element
-    noDataRow: 'tr.noData', // Shows "no available assignments" message when empty
+    noDataRow: '#availableJobs tr.noData', // Shows "no available assignments" message when empty
 
     // Within each tbody.job, there are a summary row and one or more detail rows
     summary: {

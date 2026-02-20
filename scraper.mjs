@@ -65,6 +65,7 @@ const BROWSER_RESTART_PAUSE_MS = 5_000;                   // 5s pause before bro
 
 // Error handling
 const MAX_CONSECUTIVE_ERRORS = 5;  // Restart browser after N consecutive scrape failures
+const ERROR_ALERT_COOLDOWN_MS = 10 * 60 * 1000;  // Max one Telegram error alert per 10 minutes
 
 // Screenshot throttling (at 30-second intervals, we don't need every cycle)
 const SCREENSHOT_EVERY_N_CYCLES = 20;  // Screenshot every ~10 minutes
@@ -99,6 +100,19 @@ const daemonStartTime = new Date().toISOString();
 
 // Telegram callback polling state
 let lastUpdateOffset = 0;
+
+// Error alert throttling
+let lastErrorAlertTime = 0;
+
+async function sendThrottledErrorAlert(message) {
+  const now = Date.now();
+  if (now - lastErrorAlertTime < ERROR_ALERT_COOLDOWN_MS) {
+    logToFile(`Suppressed error alert (cooldown): ${message}`);
+    return;
+  }
+  lastErrorAlertTime = now;
+  await sendErrorAlert(message).catch(() => {});
+}
 
 // ============================================================================
 // AUTO-BOOKING HELPERS
@@ -459,12 +473,37 @@ async function launchBrowser() {
 }
 
 /**
+ * Dismiss any jQuery UI dialog overlays that block page interaction.
+ * Frontline shows various popups (promotional banners like "March Madness",
+ * "Important Notifications", etc.) as ui-dialog elements that intercept
+ * pointer events on the underlying page. This removes them from the DOM.
+ */
+async function dismissOverlays(page) {
+  const removed = await page.evaluate(() => {
+    const dialogs = document.querySelectorAll('.ui-dialog');
+    const overlays = document.querySelectorAll('.ui-widget-overlay');
+    let count = 0;
+    dialogs.forEach(d => { d.remove(); count++; });
+    overlays.forEach(o => { o.remove(); count++; });
+    return count;
+  });
+  if (removed > 0) {
+    logToFile(`Dismissed ${removed} overlay(s)`);
+  }
+}
+
+/**
  * Login to Frontline Education.
  * Uses fill() for instant credential entry — no artificial typing delays.
+ * Uses 'commit' for initial navigation to avoid domcontentloaded hangs on
+ * slow Frontline servers, then waits explicitly for the login form fields.
  */
 async function login(page) {
   logToFile('Navigating to login page...');
-  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(process.env.FRONTLINE_LOGIN_URL, { waitUntil: 'commit', timeout: 30000 });
+
+  // Wait for the login form to be ready (fields must exist before we can fill them)
+  await page.locator(SELECTORS.login.usernameField).waitFor({ state: 'visible', timeout: 30000 });
 
   logToFile('Entering credentials...');
   await page.locator(SELECTORS.login.usernameField).fill(process.env.FRONTLINE_USERNAME);
@@ -473,27 +512,22 @@ async function login(page) {
   logToFile('Clicking sign in button...');
   await page.locator(SELECTORS.login.submitButton).click();
 
-  await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
-
-  // Handle "Important Notifications" popup if it appears
+  // Wait for post-login page to load (redirects to the main app)
   try {
-    const popup = page.locator(SELECTORS.popup.dialog);
-    const isPopupVisible = await popup.isVisible({ timeout: 3000 });
-
-    if (isPopupVisible) {
-      logToFile('Dismissing notification popup...');
-      await page.locator(SELECTORS.popup.dismissButton).click();
-    }
-  } catch (error) {
-    // No popup — continue
+    await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
+  } catch {
+    // Timeout OK — check if we ended up on the right page
   }
 
   // Wait for post-login redirects to settle
   try {
     await page.waitForLoadState('load', { timeout: 30000 });
   } catch {
-    // Timeout on full load is OK — domcontentloaded is sufficient
+    // Timeout on full load is OK
   }
+
+  // Dismiss any popups/overlays (promotional banners, "Important Notifications", etc.)
+  await dismissOverlays(page);
 
   logToFile('Login complete');
 }
@@ -507,6 +541,9 @@ async function login(page) {
  */
 async function navigateToAvailableJobs(page) {
   logToFile('Navigating to Available Jobs tab...');
+
+  // Dismiss overlays immediately (promotional dialogs block visibility and clicks)
+  await dismissOverlays(page);
 
   // Try to find the tab directly (Full View layout)
   try {
@@ -532,6 +569,7 @@ async function navigateToAvailableJobs(page) {
     }
   }
 
+  await dismissOverlays(page);
   await page.locator(SELECTORS.navigation.availableJobsTab).click();
   await page.waitForSelector(SELECTORS.navigation.availableJobsPanel, { timeout: 30000 });
 
@@ -1154,6 +1192,9 @@ async function main() {
             await navigateToAvailableJobs(page);
           }
 
+          // Dismiss any overlays that appeared after refresh (promotional popups etc.)
+          await dismissOverlays(page);
+
           // Run one scrape-filter-notify cycle
           const result = await performScrapeFilterNotify(page);
           consecutiveErrors = 0;
@@ -1180,7 +1221,7 @@ async function main() {
 
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             logToFile('Too many consecutive errors. Restarting browser...');
-            await sendErrorAlert(`Restarting browser after ${MAX_CONSECUTIVE_ERRORS} consecutive errors: ${scrapeError.message}`).catch(() => {});
+            await sendThrottledErrorAlert(`Restarting browser after ${MAX_CONSECUTIVE_ERRORS} consecutive errors: ${scrapeError.message}`);
             break;
           }
 
@@ -1196,7 +1237,7 @@ async function main() {
       scraperStats.currentStatus.browserHealthy = false;
       recordError(scraperStats, outerError.message, true);
       await writeScraperStats(scraperStats);
-      await sendErrorAlert(outerError.message).catch(() => {});
+      await sendThrottledErrorAlert(outerError.message);
     } finally {
       if (browser) {
         try { await browser.close(); } catch (e) { /* ignore */ }
