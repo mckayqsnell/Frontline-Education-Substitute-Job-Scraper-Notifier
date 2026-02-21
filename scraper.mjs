@@ -231,10 +231,23 @@ async function saveNotifiedJobs(notifiedJobs) {
 
 function cleanOldNotifications(notifiedJobs) {
   const cutoffTime = Date.now() - (MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1000);
+  const now = new Date();
   const cleaned = {};
 
   for (const [hash, value] of Object.entries(notifiedJobs)) {
     const timestamp = typeof value === 'number' ? value : value.timestamp;
+
+    // For booked jobs, keep the entry until the job date has passed.
+    // This prevents re-booking if the job is cancelled and reappears.
+    if (value.status === 'booked' && value.jobData?.date) {
+      const dateStr = value.jobData.date.replace(/^[A-Za-z]+,\s*/, '');
+      const jobDate = new Date(dateStr);
+      if (!isNaN(jobDate.getTime()) && jobDate >= now) {
+        cleaned[hash] = value;
+        continue;
+      }
+    }
+
     if (timestamp > cutoffTime) {
       cleaned[hash] = value;
     }
@@ -864,37 +877,58 @@ async function bookJobOnPage(page, jobData) {
     if (isMultiDay) {
       logToFile('Multi-day job — expanding details...');
       await jobBody.locator(SELECTORS.jobs.actions.seeDetailsButton).click();
-      await page.waitForTimeout(500); // Brief wait for expansion animation
+      // Wait for expansion: accept button should become visible after expansion
+      try {
+        await jobBody.locator(SELECTORS.jobs.actions.acceptButton).waitFor({ state: 'visible', timeout: 5000 });
+        logToFile('Multi-day job expanded, Accept button visible');
+      } catch {
+        logToFile('Accept button not visible after expansion, trying anyway...');
+        await page.waitForTimeout(1000);
+      }
     }
 
     // Click Accept button
     logToFile('Clicking Accept button...');
     await jobBody.locator(SELECTORS.jobs.actions.acceptButton).click();
 
-    // Wait for confirmation popup (jQuery UI dialog with "Notes" title)
+    // After clicking Accept, Frontline has TWO possible outcomes:
+    // 1. Confirmation popup (.ui-dialog) — job has teacher notes, needs second confirmation
+    // 2. Direct success banner ("Assignment Accepted") — no popup, booked immediately
+    // Race both and handle whichever comes first.
     try {
-      await page.waitForSelector(SELECTORS.jobs.bookingConfirmation.dialog, { timeout: 5000 });
-      logToFile('Confirmation popup appeared. Clicking Accept to confirm...');
+      const outcome = await Promise.race([
+        page.waitForSelector(SELECTORS.jobs.bookingConfirmation.dialog, { timeout: 10000 })
+          .then(() => 'popup'),
+        page.locator('text=Assignment Accepted').waitFor({ state: 'visible', timeout: 10000 })
+          .then(() => 'banner'),
+      ]);
 
-      // Screenshot the confirmation popup for records
-      await page.screenshot({ path: path.join(__dirname, 'debug', `booking-confirm-${Date.now()}.png`) });
-
-      // Click the "Accept" button (last button in button set)
-      await page.locator(SELECTORS.jobs.bookingConfirmation.confirmButton).click();
-
-      // Brief wait for Frontline to process the booking
-      await page.waitForTimeout(1000);
-
-      // Screenshot after confirmation
-      await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
-
-      logToFile('Booking confirmed!');
-      return { success: true, reason: 'booked', message: 'Booking confirmed' };
-
-    } catch (popupError) {
-      logToFile(`Confirmation popup not found: ${popupError.message}`);
-      await page.screenshot({ path: path.join(__dirname, 'debug', `booking-no-popup-${Date.now()}.png`) });
-      return { success: false, reason: 'error', message: 'Confirmation popup did not appear' };
+      if (outcome === 'popup') {
+        logToFile('Confirmation popup appeared. Clicking Accept to confirm...');
+        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-confirm-${Date.now()}.png`) });
+        await page.locator(SELECTORS.jobs.bookingConfirmation.confirmButton).click();
+        await page.waitForTimeout(1000);
+        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
+        logToFile('Booking confirmed via popup!');
+        return { success: true, reason: 'booked', message: 'Booking confirmed via popup' };
+      } else {
+        // Direct booking — "Assignment Accepted" banner appeared without popup
+        logToFile('Direct booking success — "Assignment Accepted" banner detected!');
+        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
+        return { success: true, reason: 'booked', message: 'Booking confirmed directly (no popup)' };
+      }
+    } catch (waitError) {
+      // Neither popup nor success banner appeared within 10 seconds
+      // Check page content for success banner one more time (in case it appeared late)
+      const pageContent = await page.textContent('body').catch(() => '');
+      if (pageContent.includes('Assignment Accepted')) {
+        logToFile('Late success detection — "Assignment Accepted" found in page content');
+        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
+        return { success: true, reason: 'booked', message: 'Booking confirmed (late detection)' };
+      }
+      logToFile(`Booking outcome unclear: ${waitError.message}`);
+      await page.screenshot({ path: path.join(__dirname, 'debug', `booking-unclear-${Date.now()}.png`) });
+      return { success: false, reason: 'error', message: 'Neither popup nor success banner appeared' };
     }
   }
 
@@ -954,14 +988,16 @@ async function performScrapeFilterNotify(page) {
 
   if (AUTO_BOOKING_ENABLED) {
     notifiedJobs = await processCallbacks(notifiedJobs);
+
+    // Track if we actually execute any bookings THIS cycle
+    const hadPendingBookings = Object.values(notifiedJobs).some(e => e.status === 'book_requested');
     notifiedJobs = await executePendingBookings(page, notifiedJobs);
     notifiedJobs = await expireOldNotifications(notifiedJobs);
     await saveNotifiedJobs(notifiedJobs);
 
-    // Re-navigate to Available Jobs after any booking attempts
+    // Re-navigate to Available Jobs only if we attempted bookings this cycle
     // (booking may have changed the page state)
-    const hasBookingAttempts = Object.values(notifiedJobs).some(e => e.status === 'booked' || e.status === 'failed');
-    if (hasBookingAttempts) {
+    if (hadPendingBookings) {
       try {
         await page.reload({ waitUntil: 'commit', timeout: 15000 });
       } catch (e) {
@@ -1017,57 +1053,64 @@ async function performScrapeFilterNotify(page) {
   for (const { job, filterResult } of matchedJobs) {
     const jobHash = createJobHash(job);
 
-    if (!notifiedJobs[jobHash]) {
-      logToFile(`New job: ${job.position} at ${job.school}`);
-
-      try {
-        if (AUTO_BOOKING_ENABLED && shouldAutoBook(job, filterResult.uncertain)) {
-          // AUTO-BOOK: Certain match, 3+ days away — book immediately, no human confirmation
-          const daysAhead = getJobDaysAhead(job);
-          logToFile(`AUTO-BOOKING: ${job.position} at ${job.school} (${daysAhead} days away)`);
-          const messageId = await sendAutoBookNotification(job, daysAhead);
-          notifiedJobs[jobHash] = {
-            status: 'book_requested',
-            timestamp: Date.now(),
-            expiresAt: null, // No expiry — we're booking immediately
-            telegramMessageId: messageId,
-            jobData: job,
-            uncertain: false,
-            autoBooked: true,
-          };
-          autoBooked++;
-        } else if (AUTO_BOOKING_ENABLED) {
-          // MANUAL CONFIRMATION: Uncertain match or job too soon — send Book/Ignore buttons
-          const messageId = await sendJobNotificationWithKeyboard(job, filterResult.uncertain, jobHash);
-          notifiedJobs[jobHash] = {
-            status: 'notified',
-            timestamp: Date.now(),
-            expiresAt: Date.now() + NOTIFICATION_EXPIRY_MS,
-            telegramMessageId: messageId,
-            jobData: job,
-            uncertain: filterResult.uncertain,
-          };
-        } else {
-          // Fallback: plain notification (no booking buttons)
-          await sendJobNotification(job, filterResult.uncertain);
-          notifiedJobs[jobHash] = {
-            status: 'notified',
-            timestamp: Date.now(),
-            expiresAt: null,
-            telegramMessageId: null,
-            jobData: job,
-            uncertain: filterResult.uncertain,
-          };
-        }
-        newJobsNotified++;
-        if (filterResult.uncertain) uncertainNotified++;
-
-        if (newJobsNotified > 1) {
-          await new Promise(r => setTimeout(r, 500)); // Telegram rate limit buffer
-        }
-      } catch (error) {
-        logToFile(`Failed to send notification: ${error.message}`);
+    if (notifiedJobs[jobHash]) {
+      // Job already known — skip. If it was booked, this could be a cancelled job reappearing.
+      const existing = notifiedJobs[jobHash];
+      if (existing.status === 'booked' && VERBOSE_LOGGING) {
+        logToFile(`Skipping previously booked job (may have been cancelled): ${job.position} at ${job.school}`);
       }
+      continue;
+    }
+
+    logToFile(`New job: ${job.position} at ${job.school}`);
+
+    try {
+      if (AUTO_BOOKING_ENABLED && shouldAutoBook(job, filterResult.uncertain)) {
+        // AUTO-BOOK: Certain match, 3+ days away — book immediately, no human confirmation
+        const daysAhead = getJobDaysAhead(job);
+        logToFile(`AUTO-BOOKING: ${job.position} at ${job.school} (${daysAhead} days away)`);
+        const messageId = await sendAutoBookNotification(job, daysAhead);
+        notifiedJobs[jobHash] = {
+          status: 'book_requested',
+          timestamp: Date.now(),
+          expiresAt: null, // No expiry — we're booking immediately
+          telegramMessageId: messageId,
+          jobData: job,
+          uncertain: false,
+          autoBooked: true,
+        };
+        autoBooked++;
+      } else if (AUTO_BOOKING_ENABLED) {
+        // MANUAL CONFIRMATION: Uncertain match or job too soon — send Book/Ignore buttons
+        const messageId = await sendJobNotificationWithKeyboard(job, filterResult.uncertain, jobHash);
+        notifiedJobs[jobHash] = {
+          status: 'notified',
+          timestamp: Date.now(),
+          expiresAt: Date.now() + NOTIFICATION_EXPIRY_MS,
+          telegramMessageId: messageId,
+          jobData: job,
+          uncertain: filterResult.uncertain,
+        };
+      } else {
+        // Fallback: plain notification (no booking buttons)
+        await sendJobNotification(job, filterResult.uncertain);
+        notifiedJobs[jobHash] = {
+          status: 'notified',
+          timestamp: Date.now(),
+          expiresAt: null,
+          telegramMessageId: null,
+          jobData: job,
+          uncertain: filterResult.uncertain,
+        };
+      }
+      newJobsNotified++;
+      if (filterResult.uncertain) uncertainNotified++;
+
+      if (newJobsNotified > 1) {
+        await new Promise(r => setTimeout(r, 500)); // Telegram rate limit buffer
+      }
+    } catch (error) {
+      logToFile(`Failed to send notification: ${error.message}`);
     }
   }
 

@@ -54,6 +54,9 @@ export const BLACKLISTED_SCHOOLS = [
   'saratoga springs',
   'vista heights middle school',
   'vista heights',
+  'cedar valley',       // Cedar Valley High School — Eagle Mountain
+  'frontier middle',    // Frontier Middle School — Eagle Mountain
+  'eagle mountain',     // Any other Eagle Mountain schools
 ];
 
 /**
