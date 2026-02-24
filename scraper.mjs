@@ -850,6 +850,75 @@ async function executePendingBookings(page, notifiedJobs) {
 }
 
 /**
+ * Verify the actual booking outcome by checking what Frontline displays.
+ * After clicking Accept (directly or via confirmation popup), Frontline shows a
+ * #messageBar banner with one of:
+ *   - class="success": "Assignment Accepted. Your confirmation number is #..."
+ *   - class="error": "I'm sorry. A sub has already been assigned to this absence."
+ *   - class="error": "I'm sorry, but this assignment ... has been deleted."
+ *
+ * HTML structure:
+ *   <div id="messageBar" class="messagebar ... error|success">
+ *     <span class="messagebar_text">...</span>
+ *     <a id="close" class="messagebar_close">Dismiss Message</a>
+ *   </div>
+ */
+async function verifyBookingOutcome(page) {
+  try {
+    // Wait for #messageBar to become visible (Frontline's response banner)
+    await page.waitForSelector('#messageBar', { state: 'visible', timeout: 8000 });
+
+    const bannerClass = await page.getAttribute('#messageBar', 'class') || '';
+    const bannerText = await page.locator('#messageBar .messagebar_text').textContent().catch(() => '');
+
+    await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
+
+    // Check for success
+    if (bannerText.includes('Assignment Accepted')) {
+      logToFile(`Booking verified — "${bannerText.trim()}"`);
+      return { success: true, reason: 'booked', message: 'Booking confirmed' };
+    }
+
+    // Check for known failure messages
+    if (bannerText.includes('already been assigned')) {
+      logToFile('Booking failed — "A sub has already been assigned"');
+      return { success: false, reason: 'taken', message: 'A sub has already been assigned' };
+    }
+    if (bannerText.includes('has been deleted') || bannerText.includes('no longer needed')) {
+      logToFile(`Booking failed — "${bannerText.trim()}"`);
+      return { success: false, reason: 'taken', message: bannerText.trim() };
+    }
+
+    // Unknown banner content — check class for hint
+    if (bannerClass.includes('error')) {
+      logToFile(`Booking failed — unknown error: "${bannerText.trim()}"`);
+      return { success: false, reason: 'error', message: bannerText.trim() || 'Unknown Frontline error' };
+    }
+
+    // Banner appeared but we can't determine outcome — assume failure to be safe
+    logToFile(`Booking outcome uncertain — banner text: "${bannerText.trim()}"`);
+    return { success: false, reason: 'error', message: `Uncertain outcome: ${bannerText.trim()}` };
+
+  } catch {
+    // #messageBar never appeared — check page content as fallback
+    const pageContent = await page.textContent('body').catch(() => '');
+    await page.screenshot({ path: path.join(__dirname, 'debug', `booking-unclear-${Date.now()}.png`) });
+
+    if (pageContent.includes('Assignment Accepted')) {
+      logToFile('Late success detection — "Assignment Accepted" found in page content');
+      return { success: true, reason: 'booked', message: 'Booking confirmed (late detection)' };
+    }
+    if (pageContent.includes('already been assigned')) {
+      logToFile('Late failure detection — job was already taken');
+      return { success: false, reason: 'taken', message: 'A sub has already been assigned' };
+    }
+
+    logToFile('Booking outcome unclear — #messageBar never appeared');
+    return { success: false, reason: 'error', message: 'No result banner appeared' };
+  }
+}
+
+/**
  * Book a job on the Frontline page by finding it and clicking Accept.
  * @returns {{ success: boolean, reason: 'booked'|'taken'|'error', message: string }}
  */
@@ -893,13 +962,13 @@ async function bookJobOnPage(page, jobData) {
 
     // After clicking Accept, Frontline has TWO possible outcomes:
     // 1. Confirmation popup (.ui-dialog) — job has teacher notes, needs second confirmation
-    // 2. Direct success banner ("Assignment Accepted") — no popup, booked immediately
-    // Race both and handle whichever comes first.
+    // 2. Direct result banner (#messageBar) — no popup, result shown immediately
+    // Race between popup and banner, handle whichever comes first.
     try {
       const outcome = await Promise.race([
         page.waitForSelector(SELECTORS.jobs.bookingConfirmation.dialog, { timeout: 10000 })
           .then(() => 'popup'),
-        page.locator('text=Assignment Accepted').waitFor({ state: 'visible', timeout: 10000 })
+        page.waitForSelector('#messageBar', { state: 'visible', timeout: 10000 })
           .then(() => 'banner'),
       ]);
 
@@ -907,28 +976,14 @@ async function bookJobOnPage(page, jobData) {
         logToFile('Confirmation popup appeared. Clicking Accept to confirm...');
         await page.screenshot({ path: path.join(__dirname, 'debug', `booking-confirm-${Date.now()}.png`) });
         await page.locator(SELECTORS.jobs.bookingConfirmation.confirmButton).click();
-        await page.waitForTimeout(1000);
-        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
-        logToFile('Booking confirmed via popup!');
-        return { success: true, reason: 'booked', message: 'Booking confirmed via popup' };
-      } else {
-        // Direct booking — "Assignment Accepted" banner appeared without popup
-        logToFile('Direct booking success — "Assignment Accepted" banner detected!');
-        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
-        return { success: true, reason: 'booked', message: 'Booking confirmed directly (no popup)' };
       }
-    } catch (waitError) {
-      // Neither popup nor success banner appeared within 10 seconds
-      // Check page content for success banner one more time (in case it appeared late)
-      const pageContent = await page.textContent('body').catch(() => '');
-      if (pageContent.includes('Assignment Accepted')) {
-        logToFile('Late success detection — "Assignment Accepted" found in page content');
-        await page.screenshot({ path: path.join(__dirname, 'debug', `booking-result-${Date.now()}.png`) });
-        return { success: true, reason: 'booked', message: 'Booking confirmed (late detection)' };
-      }
-      logToFile(`Booking outcome unclear: ${waitError.message}`);
-      await page.screenshot({ path: path.join(__dirname, 'debug', `booking-unclear-${Date.now()}.png`) });
-      return { success: false, reason: 'error', message: 'Neither popup nor success banner appeared' };
+
+      // Whether we came from popup-confirm or direct banner, verify the actual outcome
+      return await verifyBookingOutcome(page);
+
+    } catch {
+      // Neither popup nor banner appeared within 10 seconds — check page content
+      return await verifyBookingOutcome(page);
     }
   }
 
