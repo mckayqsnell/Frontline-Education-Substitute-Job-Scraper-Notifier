@@ -240,6 +240,17 @@ header h1 {
   background: rgba(255, 82, 82, 0.1);
 }
 
+.error-item.transient {
+  background: rgba(107, 115, 148, 0.06);
+  border-left-color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.error-item.transient:hover {
+  background: rgba(107, 115, 148, 0.1);
+  opacity: 1;
+}
+
 .error-item .error-time {
   color: var(--text-muted);
   font-size: 0.7rem;
@@ -247,6 +258,28 @@ header h1 {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 0.2rem;
+}
+
+.error-tag {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.error-tag.tag-transient {
+  background: rgba(107, 115, 148, 0.2);
+  color: var(--text-muted);
+}
+
+.error-tag.tag-real {
+  background: rgba(255, 82, 82, 0.2);
+  color: var(--error);
 }
 
 .muted { color: var(--text-muted); font-style: italic; }

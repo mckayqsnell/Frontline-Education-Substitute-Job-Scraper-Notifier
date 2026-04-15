@@ -98,7 +98,15 @@ function updateTodayStats(stats) {
   $('jobs-seen').textContent = today.totalJobsSeen ?? '—';
   $('jobs-matched').textContent = today.totalJobsMatched ?? '—';
   $('jobs-notified').textContent = today.totalJobsNotified ?? '—';
-  $('total-errors').textContent = today.totalErrors ?? '0';
+
+  // Count transient vs real errors from the recent errors list
+  const errors = stats?.recentErrors || [];
+  const transientCount = errors.filter(e => isTransientError(e)).length;
+  const totalErrors = today.totalErrors ?? 0;
+  const realCount = totalErrors - transientCount;
+
+  $('real-errors').textContent = realCount > 0 ? realCount : '0';
+  $('transient-errors').textContent = transientCount > 0 ? transientCount : '0';
 }
 
 // ---- Chart Theme ----
@@ -217,22 +225,76 @@ function updateBookingActions(stats) {
 
 // ---- Errors List (newest first) ----
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/**
+ * Client-side transient error classifier.
+ * Mirrors the TRANSIENT_ERROR_PATTERNS from scraper.mjs so that
+ * old errors (recorded before the transient flag existed) are
+ * still correctly tagged in the dashboard.
+ */
+const TRANSIENT_PATTERNS = [
+  /Timeout \d+ms exceeded/i,
+  /net::ERR_/i,
+  /Execution context was destroyed/i,
+  /Target closed/i,
+  /Target page, context or browser has been closed/i,
+  /frame was detached/i,
+  /Page refresh failed/i,
+  /Navigation failed because page was closed/i,
+  /chrome-error:\/\/chromewebdata/i,
+];
+
+function isTransientError(error) {
+  // Use server-side flag if present, otherwise classify client-side
+  if (typeof error.transient === 'boolean') return error.transient;
+  const msg = error.message || '';
+  return TRANSIENT_PATTERNS.some(p => p.test(msg));
+}
+
 function updateErrors(stats) {
   const errors = stats?.recentErrors || [];
   const el = $('errors-list');
 
+  // Update summary in the section header
+  const summaryEl = $('errors-summary');
   if (errors.length === 0) {
     el.innerHTML = '<p class="muted">No errors</p>';
+    if (summaryEl) summaryEl.textContent = '';
     return;
   }
 
+  const transientCount = errors.filter(e => isTransientError(e)).length;
+  const realCount = errors.length - transientCount;
+  if (summaryEl) {
+    const parts = [];
+    if (realCount > 0) parts.push(`${realCount} real`);
+    if (transientCount > 0) parts.push(`${transientCount} transient`);
+    summaryEl.textContent = `(${parts.join(', ')})`;
+  }
+
   // Reverse so newest errors appear at the top
-  el.innerHTML = [...errors].reverse().map(e => `
-    <div class="error-item">
-      <div class="error-time">${formatTime(e.timestamp)} ${e.recovered ? '(recovered)' : ''}</div>
-      <div>${e.message}</div>
-    </div>
-  `).join('');
+  el.innerHTML = [...errors].reverse().map(e => {
+    const transient = isTransientError(e);
+    const itemClass = transient ? 'error-item transient' : 'error-item';
+    const tag = transient
+      ? '<span class="error-tag tag-transient">Transient</span>'
+      : '<span class="error-tag tag-real">Real</span>';
+    const recoveredLabel = e.recovered ? '(recovered)' : '';
+    // Show only first line of error message for cleaner display
+    const shortMessage = escapeHtml((e.message || '').split('\n')[0]);
+
+    return `
+      <div class="${itemClass}">
+        <div class="error-time">${formatTime(e.timestamp)} ${recoveredLabel} ${tag}</div>
+        <div>${shortMessage}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ---- Logs (newest first) ----

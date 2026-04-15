@@ -22,11 +22,6 @@
 export const ACCEPTED_SCHOOL_LEVELS = [
   'high school',
   'hs',
-  'jr. high',
-  'jr high',
-  'junior high',
-  'middle school',
-  'intermediate',
 ];
 
 /**
@@ -41,6 +36,11 @@ export const REJECTED_SCHOOL_LEVELS = [
   'pre-k',
   'preschool',
   'pre school',
+  'jr. high',
+  'jr high',
+  'junior high',
+  'middle school',
+  'intermediate',
 ];
 
 /**
@@ -52,10 +52,7 @@ export const BLACKLISTED_SCHOOLS = [
   'westlake high school',
   'westlake hs',
   'saratoga springs',
-  'vista heights middle school',
-  'vista heights',
   'cedar valley',       // Cedar Valley High School — Eagle Mountain
-  'frontier middle',    // Frontier Middle School — Eagle Mountain
   'eagle mountain',     // Any other Eagle Mountain schools
 ];
 
@@ -80,10 +77,8 @@ export const NEARBY_SCHOOLS = [
   // Specific school names that may not contain city name
   'mountain view',     // Mountain View HS — Orem
   'timpanogos',        // Timpanogos HS — Orem
-  'canyon view',       // Canyon View JH — Orem
   'lone peak',         // Lone Peak HS — Highland
   'skyridge',          // Skyridge HS — Lehi
-  'timberline',        // Timberline MS — Alpine
 ];
 
 // ============================================================================

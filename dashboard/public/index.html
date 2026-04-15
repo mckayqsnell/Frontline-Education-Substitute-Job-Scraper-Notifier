@@ -61,8 +61,12 @@
           <span id="jobs-notified" class="stat-value big highlight">—</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Errors</span>
-          <span id="total-errors" class="stat-value big error">—</span>
+          <span class="stat-label">Errors (Real)</span>
+          <span id="real-errors" class="stat-value big error">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Errors (Transient)</span>
+          <span id="transient-errors" class="stat-value big" style="color: var(--text-muted)">—</span>
         </div>
       </div>
     </section>
@@ -127,7 +131,7 @@
 
     <!-- Recent Errors -->
     <section class="card">
-      <h2>Recent Errors</h2>
+      <h2>Recent Errors <span id="errors-summary" style="font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.75rem;"></span></h2>
       <div id="errors-list" class="errors-list">
         <p class="muted">No errors</p>
       </div>

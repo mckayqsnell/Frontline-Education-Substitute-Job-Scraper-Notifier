@@ -66,6 +66,7 @@ const BROWSER_RESTART_PAUSE_MS = 5_000;                   // 5s pause before bro
 // Error handling
 const MAX_CONSECUTIVE_ERRORS = 5;  // Restart browser after N consecutive scrape failures
 const ERROR_ALERT_COOLDOWN_MS = 10 * 60 * 1000;  // Max one Telegram error alert per 10 minutes
+const MAX_CONSECUTIVE_BROWSER_FAILURES = 3; // Alert only after N consecutive browser lifecycle failures
 
 // Screenshot throttling (at 30-second intervals, we don't need every cycle)
 const SCREENSHOT_EVERY_N_CYCLES = 20;  // Screenshot every ~10 minutes
@@ -104,14 +105,77 @@ let lastUpdateOffset = 0;
 // Error alert throttling
 let lastErrorAlertTime = 0;
 
-async function sendThrottledErrorAlert(message) {
+// Consecutive browser lifecycle failure tracking
+let consecutiveBrowserFailures = 0;
+
+/**
+ * Known transient error patterns — Frontline server flakiness, network blips, etc.
+ * These errors self-recover when the browser restarts and should not spam Telegram.
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  /Timeout \d+ms exceeded/i,
+  /net::ERR_ABORTED/i,
+  /net::ERR_INTERNET_DISCONNECTED/i,
+  /net::ERR_CONNECTION_RESET/i,
+  /net::ERR_CONNECTION_REFUSED/i,
+  /net::ERR_CONNECTION_TIMED_OUT/i,
+  /net::ERR_NAME_NOT_RESOLVED/i,
+  /net::ERR_NETWORK_CHANGED/i,
+  /Execution context was destroyed/i,
+  /Target closed/i,
+  /Target page, context or browser has been closed/i,
+  /frame was detached/i,
+  /Page refresh failed/i,
+  /Navigation failed because page was closed/i,
+  /chrome-error:\/\/chromewebdata/i,
+];
+
+/**
+ * Classify whether an error is transient (Frontline/network flakiness) or a real issue.
+ * Transient errors self-recover when the scraper restarts the browser.
+ */
+function isTransientError(errorMessage) {
+  return TRANSIENT_ERROR_PATTERNS.some(pattern => pattern.test(errorMessage));
+}
+
+/**
+ * Send Telegram error alert with smart suppression:
+ * - Transient errors (Frontline flakiness) are NEVER sent individually.
+ *   They only trigger an alert after MAX_CONSECUTIVE_BROWSER_FAILURES consecutive
+ *   browser lifecycle failures, indicating a sustained outage.
+ * - Non-transient (unexpected) errors are always sent, with cooldown throttling.
+ */
+async function sendThrottledErrorAlert(message, { forceTransient = false } = {}) {
+  const transient = forceTransient || isTransientError(message);
+
+  if (transient) {
+    logToFile(`Transient error (no Telegram alert): ${message.split('\n')[0]}`);
+    return;
+  }
+
+  // Non-transient error — send with cooldown
   const now = Date.now();
   if (now - lastErrorAlertTime < ERROR_ALERT_COOLDOWN_MS) {
-    logToFile(`Suppressed error alert (cooldown): ${message}`);
+    logToFile(`Suppressed error alert (cooldown): ${message.split('\n')[0]}`);
     return;
   }
   lastErrorAlertTime = now;
   await sendErrorAlert(message).catch(() => {});
+}
+
+/**
+ * Send a sustained-outage alert after repeated browser lifecycle failures.
+ * Only called when consecutive failures exceed the threshold.
+ */
+async function sendSustainedOutageAlert(failures, lastMessage) {
+  const now = Date.now();
+  if (now - lastErrorAlertTime < ERROR_ALERT_COOLDOWN_MS) {
+    logToFile(`Suppressed sustained-outage alert (cooldown)`);
+    return;
+  }
+  lastErrorAlertTime = now;
+  const alertText = `Browser failed ${failures} times in a row. Frontline may be down or network is unavailable.\n\nLast error: ${lastMessage.split('\n')[0]}`;
+  await sendErrorAlert(alertText).catch(() => {});
 }
 
 // ============================================================================
@@ -397,10 +461,12 @@ function recordCheck(stats, result) {
 
 function recordError(stats, errorMessage, recovered = true) {
   stats.todayStats.totalErrors++;
+  const transient = isTransientError(errorMessage);
   stats.recentErrors.push({
     timestamp: new Date().toISOString(),
     message: errorMessage,
     recovered,
+    transient,
   });
   while (stats.recentErrors.length > 20) stats.recentErrors.shift();
 }
@@ -610,7 +676,7 @@ async function refreshPage(page) {
     await page.reload({ waitUntil: 'commit', timeout: 15000 });
   } catch (reloadError) {
     // Reload failed — try navigating to the same URL as fallback
-    if (VERBOSE_LOGGING) logToFile(`Reload failed (${reloadError.message.split('\n')[0]}), trying goto fallback...`);
+    logToFile(`Reload failed (${reloadError.message.split('\n')[0]}), trying goto fallback...`);
     try {
       await page.goto(currentPageUrl, { waitUntil: 'commit', timeout: 15000 });
     } catch (gotoError) {
@@ -633,6 +699,7 @@ async function refreshPage(page) {
       newUrl.includes('/Account/Login') ||
       newUrl.includes('/connect/authorize') ||
       newUrl.includes('ReturnUrl=')) {
+    logToFile('Session expired (redirected to login page)');
     return true; // Session expired
   }
 
@@ -1257,6 +1324,9 @@ async function main() {
       await login(page);
       await navigateToAvailableJobs(page);
 
+      // Browser launched + logged in successfully — reset failure counter
+      consecutiveBrowserFailures = 0;
+
       const browserStartTime = Date.now();
       cycleCount = 0; // Reset cycle count for new browser session
 
@@ -1312,14 +1382,20 @@ async function main() {
 
         } catch (scrapeError) {
           consecutiveErrors++;
-          logToFile(`Scrape error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${scrapeError.message}`);
+          const transient = isTransientError(scrapeError.message);
+          const label = transient ? 'Transient scrape error' : 'Scrape error';
+          logToFile(`${label} (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${scrapeError.message.split('\n')[0]}`);
 
           recordError(scraperStats, scrapeError.message, consecutiveErrors < MAX_CONSECUTIVE_ERRORS);
           await writeScraperStats(scraperStats);
 
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             logToFile('Too many consecutive errors. Restarting browser...');
-            await sendThrottledErrorAlert(`Restarting browser after ${MAX_CONSECUTIVE_ERRORS} consecutive errors: ${scrapeError.message}`);
+            if (!transient) {
+              // Non-transient errors always alert
+              await sendThrottledErrorAlert(`Restarting browser after ${MAX_CONSECUTIVE_ERRORS} consecutive errors: ${scrapeError.message}`);
+            }
+            // Transient errors will be caught by the browser failure counter if they persist
             break;
           }
 
@@ -1331,11 +1407,24 @@ async function main() {
       }
 
     } catch (outerError) {
-      logToFile(`Browser lifecycle error: ${outerError.message}`);
+      consecutiveBrowserFailures++;
+      const transient = isTransientError(outerError.message);
+      const label = transient ? 'Transient browser lifecycle error' : 'Browser lifecycle error';
+      logToFile(`${label} (${consecutiveBrowserFailures}/${MAX_CONSECUTIVE_BROWSER_FAILURES}): ${outerError.message.split('\n')[0]}`);
+
       scraperStats.currentStatus.browserHealthy = false;
       recordError(scraperStats, outerError.message, true);
       await writeScraperStats(scraperStats);
-      await sendThrottledErrorAlert(outerError.message);
+
+      if (transient) {
+        // Only alert after repeated consecutive browser failures (sustained outage)
+        if (consecutiveBrowserFailures >= MAX_CONSECUTIVE_BROWSER_FAILURES) {
+          await sendSustainedOutageAlert(consecutiveBrowserFailures, outerError.message);
+        }
+      } else {
+        // Unknown/unexpected errors always alert immediately
+        await sendThrottledErrorAlert(outerError.message);
+      }
     } finally {
       if (browser) {
         try { await browser.close(); } catch (e) { /* ignore */ }
